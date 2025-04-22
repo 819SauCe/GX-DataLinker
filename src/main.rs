@@ -57,7 +57,7 @@ async fn obter_produto(token: &str, id_produto: &str) -> Option<Value> {
 
 #[tokio::main]
 async fn main() {
-    // conexão com o banco
+
     dotenv().ok();
     let db_url_1 = env::var("CONECTION_GLOBAL_X").unwrap_or_default();
     let db_url_2 = env::var("CONECTION_TEST_CASA").unwrap_or_default();
@@ -144,7 +144,6 @@ async fn main() {
                             }
                         }
                     
-                        // esta parte roda sempre, independente de já existir o produto
                         let descricao_item = item.get("complemento").and_then(|v| v.as_str()).unwrap_or("");
                         let valor_total = item.get("valorTotal").and_then(|v| v.as_f64()).unwrap_or(0.0);
                         client.execute(
