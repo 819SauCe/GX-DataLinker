@@ -10,6 +10,7 @@ use serde_json::json;
 use serde::{Deserialize, Serialize};
 use axum::{Router, routing::post, Json};
 use tokio::net::TcpListener;
+use tokio_postgres::types::ToSql;
 
 #[derive(Deserialize)]
 struct Mensagem {
@@ -67,9 +68,6 @@ async fn inserir_dados(){
     let data = obtain_nfe(token_str).await;
     println!("Token pego!");
 
-    //apagando table
-    client.execute("DELETE FROM itens_nota;", &[]).await.unwrap();
-    client.execute("DELETE FROM notas_fiscais;", &[]).await.unwrap();
     if let Some(notas) = data.as_array() {
         for nota in notas {
             let chave = nota["chave"].as_str().unwrap_or("");
@@ -78,19 +76,23 @@ async fn inserir_dados(){
             let data_saida = nota["dataEntradaSaida"].as_str().unwrap_or("");
             let numero = nota["numero"].as_i64().unwrap_or(0);
             let cliente = nota["idClienteFornecedor"].as_str().unwrap_or("");
-            let data_emissao_dt = DateTime::parse_from_rfc3339(data_emissao).map(|dt| dt.naive_utc()).unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
+            let data_emissao_dt = DateTime::parse_from_rfc3339(data_emissao).map(|dt| dt.naive_utc()).ok();
             let data_saida_dt = DateTime::parse_from_rfc3339(data_saida).map(|dt| dt.naive_utc()).unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
             let numero_str = numero.to_string();
-            let id_uuid = Uuid::new_v4();
+            let row = client.query_opt("SELECT id_uuid FROM notas_fiscais WHERE chave = $1",&[&chave]).await.unwrap();
+            let id_uuid = if let Some(r) = row {r.get::<_, uuid::Uuid>(0)} else {Uuid::new_v4()};
             let id = id_uuid.to_string();
             let tipo_api = nota["tipo"].as_str().unwrap_or("");
             let tipo = match tipo_api {"Entrada" => "Entrada","Saida" => "Saída",_ => "Saída",};
             let nomecliente = nota.get("localEntrega").and_then(|v| v.get("nome")).and_then(|n| n.as_str()).unwrap_or("");
+            let none_dt: Option<NaiveDateTime> = None;
+            let data_emissao_sql: &(dyn ToSql + Sync) = match &data_emissao_dt {Some(dt) => dt,None => &none_dt,};
 
             client.execute(
                 "INSERT INTO notas_fiscais (id, id_uuid, chave, idfilial, tipo, dataemissao, dataentradasaida, numero, codigocliente, nomecliente)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-                &[&id, &id_uuid, &chave, &idfilial, &tipo, &data_emissao_dt, &data_saida_dt, &numero_str, &cliente, &nomecliente]
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 ON CONFLICT (chave) DO NOTHING;",
+                &[&id, &id_uuid, &chave, &idfilial, &tipo, data_emissao_sql, &data_saida_dt, &numero_str, &cliente, &nomecliente]
             ).await.unwrap();
 
             if let Some(itens) = nota.get("itens").and_then(|i| i.as_array()) {
@@ -121,12 +123,20 @@ async fn inserir_dados(){
                     
                         println!("insert {}", item);
 
-                        let descricao_item = item.get("complemento").and_then(|v| v.as_str()).unwrap_or("");
                         let valor_total = item.get("valorTotal").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let id_produto_string: String = id_produto.to_string();
+                        let id_produto_ref: &(dyn ToSql + Sync) = &id_produto_string;
+                        let id_uuid_ref: &(dyn ToSql + Sync) = &id_uuid;
+
                         client.execute(
-                            "INSERT INTO itens_nota (id_nota, id_produto, descricao, valor_total) VALUES ($1, $2, $3, $4)",
-                            &[&id_uuid, &id_produto, &descricao_item, &valor_total]
+                            "INSERT INTO itens_nota (id_nota, id_produto, valor_total)
+                            VALUES ($1::uuid, $2::text, $3)
+                            ON CONFLICT (id_nota, id_produto) DO NOTHING;",
+                            &[id_uuid_ref, id_produto_ref, &valor_total]
                         ).await.unwrap();
+
+
+    
                     }
                     
                     }
@@ -134,7 +144,7 @@ async fn inserir_dados(){
             }            
         }
 
-        println!("terminou!!!!")
+        println!("Completo")
 }
 
 async fn tratamento_resposta(mensagem: &str) -> String {
@@ -174,12 +184,12 @@ async fn rotina_de_insercao() {
         let minutos = agora.minute();
         let bar_construct = "-";
         let bar = bar_construct.repeat(16);
-
         println!("Hora: {}", hora);
         println!("Data: {}", data);
         println!("{}", bar);
 
         if minutos % 15 == 0 {
+            println!("inserindo dados!");
             inserir_dados().await;
         }
 
