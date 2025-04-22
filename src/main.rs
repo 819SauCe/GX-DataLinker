@@ -1,27 +1,30 @@
-use chrono::{DateTime, Duration, Local, NaiveDateTime};
+use chrono::{DateTime, Local, NaiveDateTime, Timelike, Duration as ChronoDuration};
 use dotenvy::dotenv;
 use reqwest::Client;
 use serde_json::Value;
-use serde_json::json;
 use std::env;
+use tokio::time::{sleep, Duration as TokioDuration};
 use tokio_postgres::NoTls;
 use uuid::Uuid;
+use serde_json::json;
+use serde::{Deserialize, Serialize};
+use axum::{Router, routing::post, Json};
+use tokio::net::TcpListener;
+
+#[derive(Deserialize)]
+struct Mensagem {
+    user_message: String,
+}
+
+#[derive(Serialize)]
+struct RespostaIA {
+    resposta: String,
+}
 
 async fn obtain_token() -> Value {
     let client = Client::new();
-    let res = client
-        .post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token")
-        .json(&json!({
-            "empresa": "Global_trade",
-            "nomeusuario": "IAGX",
-            "senha": "GmygZQ"
-        }))
-        .send()
-        .await
-        .unwrap()
-        .json::<Value>()
-        .await
-        .unwrap();
+    let dados: Value = serde_json::from_str(&std::env::var("JSON_DATA").unwrap()).unwrap();
+    let res = client.post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token").json(&dados).send().await.unwrap().json::<Value>().await.unwrap();
 
     res
 }
@@ -29,20 +32,9 @@ async fn obtain_token() -> Value {
 async fn obtain_nfe(token: &str) -> Value {
     let client = Client::new();
     let data_atual = Local::now().naive_local().date();
-    let data_antiga = data_atual - Duration::days(1096);
-    let url = format!(
-        "https://global_trade.cr.wk.net.br/wk.api/api/comercial/v1/nota-fiscal?DataEmissaoInicial={}&DataEmissaoFinal={}",
-        data_antiga, data_atual
-    );
-    let res = client
-        .get(&url)
-        .bearer_auth(token)
-        .send()
-        .await
-        .unwrap()
-        .json::<Value>()
-        .await
-        .unwrap();
+    let data_antiga = data_atual - ChronoDuration::days(1096);
+    let url = format!("https://global_trade.cr.wk.net.br/wk.api/api/comercial/v1/nota-fiscal?DataEmissaoInicial={}&DataEmissaoFinal={}",data_antiga, data_atual);
+    let res = client.get(&url).bearer_auth(token).send().await.unwrap().json::<Value>().await.unwrap();
 
     return res;
 }
@@ -51,34 +43,17 @@ async fn obter_produto(token: &str, id_produto: &str) -> Option<Value> {
     let client = Client::new();
     let url = format!("https://global_trade.cr.wk.net.br/wk.api/api/empresarial/v1/produto/{}", id_produto);
     let res = client.get(&url).bearer_auth(token).send().await.ok()?.json::<Value>().await.ok()?;
+    
     Some(res)
 }
 
-
-#[tokio::main]
-async fn main() {
+async fn inserir_dados(){
     // conexão com o banco
     dotenv().ok();
-    let db_url_1 = env::var("CONECTION_GLOBAL_X").unwrap_or_default();
-    let db_url_2 = env::var("CONECTION_TEST_CASA").unwrap_or_default();
-    let (client, connection) = if !db_url_1.is_empty() {
-        match tokio_postgres::connect(&db_url_1, NoTls).await {
-            Ok(conn) => conn,
-            Err(e1) => {
-                eprintln!("Falha na conexão com GLOBAL_X: {}", e1);
-                match tokio_postgres::connect(&db_url_2, NoTls).await {
-                    Ok(conn) => conn,
-                    Err(e2) => panic!("Falha também na conexão TEST_CASA: {}", e2),
-                }
-            }
-        }
-    } else {
-        match tokio_postgres::connect(&db_url_2, NoTls).await {
-            Ok(conn) => conn,
-            Err(e) => panic!("Falha na conexão TEST_CASA (sem GLOBAL_X): {}", e),
-        }
-    };
-    println!("Conectou!");
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
+    let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Falha na conexão");
+
+    println!("Conectado ao banco!");
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("Erro na conexão!\nError: {}", e);
@@ -144,7 +119,8 @@ async fn main() {
                             }
                         }
                     
-                        // esta parte roda sempre, independente de já existir o produto
+                        println!("insert {}", item);
+
                         let descricao_item = item.get("complemento").and_then(|v| v.as_str()).unwrap_or("");
                         let valor_total = item.get("valorTotal").and_then(|v| v.as_f64()).unwrap_or(0.0);
                         client.execute(
@@ -159,4 +135,62 @@ async fn main() {
         }
 
         println!("terminou!!!!")
+}
+
+async fn tratamento_resposta(mensagem: &str) -> String {
+    dotenv().ok();
+    let client = Client::new();
+    let api_key = env::var("API_OPENAI").unwrap();
+    let body = json!({
+        "model": "gpt-4-turbo",
+        "messages": [
+            {"role": "system", "content": "Você é um robo focado em fazer relatorio de notas fiscais"},
+            {"role": "user", "content": mensagem}
+        ]
+    });
+
+    let res = client.post("https://api.openai.com/v1/chat/completions").bearer_auth(api_key).json(&body).send().await.unwrap().json::<serde_json::Value>().await.unwrap();
+
+    res["choices"][0]["message"]["content"].as_str().unwrap_or("Erro na resposta").to_string()
+}
+
+async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> Json<RespostaIA> {
+    let resposta = tratamento_resposta(&payload.user_message).await;
+    Json(RespostaIA { resposta })
+}
+
+async fn start_http_server() {
+    println!("Servidor rodando!");
+    let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));   
+    let listener = TcpListener::bind("0.0.0.0:5400").await.unwrap();
+    axum::serve(listener, app.into_make_service()).await.unwrap();
+}
+
+async fn rotina_de_insercao() {
+    loop {
+        let agora = Local::now();
+        let hora = agora.format("%H:%M").to_string();
+        let data = agora.format("%d/%m/%Y").to_string();
+        let minutos = agora.minute();
+        let bar_construct = "-";
+        let bar = bar_construct.repeat(16);
+
+        println!("Hora: {}", hora);
+        println!("Data: {}", data);
+        println!("{}", bar);
+
+        if minutos % 15 == 0 {
+            inserir_dados().await;
+        }
+
+        sleep(TokioDuration::from_secs(60)).await;
     }
+}
+
+#[tokio::main]
+async fn main() {
+    tokio::join!(
+        start_http_server(),
+        rotina_de_insercao()
+    );
+}
