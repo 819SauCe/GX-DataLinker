@@ -67,6 +67,7 @@ async fn insert_data() -> Result<(), Error> {
         }
     });
 
+    // Obter dados (exemplo de onde os dados vêm)
     let dados = data().await.expect("Falha ao obter dados da API");
     println!("{}", dados);
 
@@ -78,6 +79,13 @@ async fn insert_data() -> Result<(), Error> {
                 let nome: String = client.query_one("SELECT nome FROM produtos WHERE codigo = $1", &[&codigo_produto]).await.map(|row| row.get(0)).unwrap_or_else(|_| String::from("Produto não encontrado"));
 
                 println!("Código do Produto: {}, Quantidade Disponível: {}, Nome: {}", codigo_produto, quantidade_disponivel, nome);
+
+                // Inserir dados na tabela Estoque_and_EstoqueKits
+                let insert_query = "
+                    INSERT INTO Estoque_and_EstoqueKits (codigo_produto, quantidade_disponivel, nome)
+                    VALUES ($1, $2, $3)
+                ";
+                client.execute(insert_query, &[&codigo_produto, &quantidade_disponivel, &nome]).await?;
             }
         }
     }
