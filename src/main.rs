@@ -8,9 +8,13 @@ use tokio_postgres::NoTls;
 use uuid::Uuid;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
-use axum::{Router, routing::post, Json};
 use tokio::net::TcpListener;
 use tokio_postgres::types::ToSql;
+use tokio::sync::Mutex;
+use once_cell::sync::Lazy;
+use axum::{Router, routing::post, extract::Json, response::IntoResponse};
+
+static MESSAGE_HISTORY: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 #[derive(Deserialize)]
 struct Mensagem {
@@ -103,6 +107,7 @@ async fn inserir_dados(){
                         if existe.is_none() {
                             if let Some(produto) = obter_produto(token_str, id_produto).await {
                                 let nome = produto.get("nome").and_then(|v| v.as_str()).unwrap_or("");
+                                let codigo: &str = produto.get("codigo").and_then(|v|v.as_str()).unwrap_or("");
                                 let descricao = produto.get("descricao").and_then(|v| v.as_str()).unwrap_or("");
                                 let tipo = produto.get("tipo").and_then(|v| v.as_str()).unwrap_or("");
                                 let preco_venda = produto.get("precoVenda").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -116,7 +121,7 @@ async fn inserir_dados(){
                                     "INSERT INTO produtos (id, codigo, nome, descricao, tipo, preco_venda, peso_bruto, peso_liquido, classificacao, referencia, gtin)
                                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                                      ON CONFLICT (id) DO NOTHING",
-                                    &[&id_produto, &id_produto, &nome, &descricao, &tipo, &preco_venda, &peso_bruto, &peso_liquido, &classificacao, &referencia, &gtin]
+                                    &[&id_produto, &codigo, &nome, &descricao, &tipo, &preco_venda, &peso_bruto, &peso_liquido, &classificacao, &referencia, &gtin]
                                 ).await.unwrap();
                             }
                         }
@@ -151,21 +156,72 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     dotenv().ok();
     let client = Client::new();
     let api_key = env::var("API_OPENAI").unwrap();
+
+    let mut history = MESSAGE_HISTORY.lock().await;
+    history.push(json!({"role": "user", "content": mensagem}));
+    if history.len() > 10 { history.remove(0); }
+
     let body = json!({
         "model": "gpt-4-turbo",
-        "messages": [
-            {"role": "system", "content": "Você é um robo focado em fazer relatorio de notas fiscais"},
-            {"role": "user", "content": mensagem}
-        ]
+        "messages": vec![
+            json!({"role": "system", "content": "Você é um assistente virtual"})
+        ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
-    let res = client.post("https://api.openai.com/v1/chat/completions").bearer_auth(api_key).json(&body).send().await.unwrap().json::<serde_json::Value>().await.unwrap();
+    let res = client.post("https://api.openai.com/v1/chat/completions").bearer_auth(api_key).json(&body).send().await.unwrap().json::<Value>().await.unwrap();
+    let content = res["choices"][0]["message"]["content"].as_str().unwrap_or("Erro na resposta").to_string();
 
-    res["choices"][0]["message"]["content"].as_str().unwrap_or("Erro na resposta").to_string()
+    history.push(json!({"role": "assistant", "content": content}));
+    if history.len() > 10 { history.remove(0); }
+
+    content
 }
 
-async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> Json<RespostaIA> {
-    let resposta = tratamento_resposta(&payload.user_message).await;
+#[axum::debug_handler]
+async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
+    dotenv().ok();
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
+    let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Erro ao conectar no banco");
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Erro conexão: {}", e);
+        }
+    });
+
+    let numero_input = payload.user_message.trim();
+    let row_opt = client.query_opt("SELECT id_uuid, chave, tipo, dataemissao, dataentradasaida, codigocliente, nomecliente FROM notas_fiscais WHERE numero = $1", &[&numero_input]).await.unwrap();
+
+    let mensagem_final = if let Some(row) = row_opt {
+        let id_uuid: Uuid = row.get(0);
+        let chave: &str = row.get(1);
+        let tipo: &str = row.get(2);
+        let dataemissao: Option<NaiveDateTime> = row.get(3);
+        let dataentradasaida: NaiveDateTime = row.get(4);
+        let codigocliente: &str = row.get(5);
+        let nomecliente: &str = row.get(6);
+
+        let dataemissao_fmt = dataemissao.map(|d| d.format("%d/%m/%Y").to_string()).unwrap_or("N/D".to_string());
+        let dataentradasaida_fmt = dataentradasaida.format("%d/%m/%Y").to_string();
+
+        let itens = client.query("SELECT id_produto, valor_total FROM itens_nota WHERE id_nota = $1", &[&id_uuid]).await.unwrap();
+        let mut texto_itens = String::new();
+        for item in itens {
+            let id_produto: &str = item.get(0);
+            let valor_total: f64 = item.get(1);
+            texto_itens += &format!("- Produto: {}, Total: {:.2}\n", id_produto, valor_total);
+        }
+
+        format!(
+            "Nota fiscal encontrada!\n\
+            Número: {}\nTipo: {}\nCliente: {} ({})\nChave: {}\n\
+            Emissão: {}\nSaída: {}\nItens:\n{}",
+            numero_input, tipo, nomecliente, codigocliente, chave, dataemissao_fmt, dataentradasaida_fmt, texto_itens
+        )
+    } else {
+        payload.user_message.clone()
+    };
+
+    let resposta = tratamento_resposta(&mensagem_final).await;
     Json(RespostaIA { resposta })
 }
 
@@ -177,16 +233,22 @@ async fn start_http_server() {
 }
 
 async fn rotina_de_insercao() {
+    let inicio = Local::now();
     loop {
         let agora = Local::now();
+        let uptime = agora.signed_duration_since(inicio);
+        let horas = uptime.num_hours();
+        let minutos_uptime = uptime.num_minutes() % 60;
         let hora = agora.format("%H:%M").to_string();
         let data = agora.format("%d/%m/%Y").to_string();
         let minutos = agora.minute();
-        let bar_construct = "-";
-        let bar = bar_construct.repeat(16);
+        let uptime_str = format!("Uptime: {}h {}min", horas, minutos_uptime);
+        let barra = "-".repeat(uptime_str.len());
+
         println!("Hora: {}", hora);
         println!("Data: {}", data);
-        println!("{}", bar);
+        println!("{}", uptime_str);
+        println!("{}", barra);
 
         if minutos % 15 == 0 {
             println!("inserindo dados!");
