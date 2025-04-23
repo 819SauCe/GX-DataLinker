@@ -48,9 +48,7 @@ async fn obter_produto(token: &str, id_produto: &str) -> Option<Value> {
     Some(res)
 }
 
-
-#[tokio::main]
-async fn main() {
+async fn inserir_dados(){
     // conexão com o banco
     dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
@@ -123,8 +121,8 @@ async fn main() {
                             }
                         }
                     
-                        // esta parte roda sempre, independente de já existir o produto
-                        let descricao_item = item.get("complemento").and_then(|v| v.as_str()).unwrap_or("");
+                        println!("insert {}", item);
+
                         let valor_total = item.get("valorTotal").and_then(|v| v.as_f64()).unwrap_or(0.0);
                         let id_produto_string: String = id_produto.to_string();
                         let id_produto_ref: &(dyn ToSql + Sync) = &id_produto_string;
