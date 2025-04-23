@@ -1,3 +1,15 @@
+/*
+  Tomar cuidado com a pegada do token
+sempre monitorar o uptime e tratamento
+de erros.
+Contato:
+
+Instagram: https://www.instagram.com/ViitoJooj/
+Github: https://github.com/819SauCe/
+Local: Jaboticabal-SP
+*/
+
+
 use chrono::{DateTime, Local, NaiveDateTime, Timelike, Duration as ChronoDuration};
 use dotenvy::dotenv;
 use reqwest::Client;
