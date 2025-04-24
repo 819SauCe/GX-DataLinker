@@ -1,4 +1,4 @@
-# Plataforma de Integração e Análise de Dados com IA
+# Plataforma de Integração e Análise de Dados com IA(GX-DataLinker)
 ## Este projeto é um sistema web completo com frontend e backend, desenvolvido com foco em performance, integração e automação de relatórios empresariais personalizados, especialmente para atender as necessidades da **Global-Trade**, **Global-X**, **BioSigma** e **E-Lab**. 
 ### A stack utilizada inclui:
 
