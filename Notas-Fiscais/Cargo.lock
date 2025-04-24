@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "IAGX-NOTAS_FISCAIS"
+name = "NOTAS-FISCAIS"
 version = "0.1.0"
 dependencies = [
  "axum",
