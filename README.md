@@ -1,7 +1,5 @@
 # Plataforma de Integração e Análise de Dados com IA
-## Este projeto é um sistema web completo com frontend e backend
-## , desenvolvido com foco em performance, integração e automação de relatórios empresariais personalizados.
-## A stack utilizada inclui:
+## Este projeto é um sistema web completo com frontend e backend, desenvolvido com foco em performance, integração e automação de relatórios empresariais personalizados. A stack utilizada inclui:
 
 - Frontend: Svelte, HTML, CSS e JavaScript.
 - Backend: Rust  e Python (Django).
