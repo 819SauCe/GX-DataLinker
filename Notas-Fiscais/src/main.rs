@@ -171,7 +171,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
 
     let mut history = MESSAGE_HISTORY.lock().await;
     history.push(json!({"role": "user", "content": mensagem}));
-    if history.len() > 10 { history.remove(0); }
+    while history.len() > 10 { history.remove(0); }
 
     let body = json!({
         "model": "gpt-4-turbo",
@@ -184,7 +184,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     let content = res["choices"][0]["message"]["content"].as_str().unwrap_or("Erro na resposta").to_string();
 
     history.push(json!({"role": "assistant", "content": content}));
-    if history.len() > 10 { history.remove(0); }
+    while history.len() > 10 { history.remove(0); }
 
     content
 }

@@ -70,7 +70,10 @@ async fn insert_data_from_url(url: &str, client: &tokio_postgres::Client) -> Res
 
                 let insert_query = "
                 INSERT INTO Estoque_and_EstoqueKits (codigo_produto, quantidade_disponivel, nome)
-                VALUES ($1, $2, $3)";
+                VALUES ($1, $2, $3)
+                ON CONFLICT (codigo_produto) DO UPDATE
+                SET quantidade_disponivel = EXCLUDED.quantidade_disponivel,
+                    nome = EXCLUDED.nome";
             client.execute(insert_query, &[&codigo_produto, &quantidade_disponivel, &nome]).await?;
             }
         }
@@ -104,12 +107,15 @@ async fn tratamento_resposta(mensagem: &str) -> String {
 
     let mut history = MESSAGE_HISTORY.lock().await;
     history.push(json!({"role": "user", "content": mensagem}));
-    if history.len() > 10 { history.remove(0); }
+    while history.len() > 10 { history.remove(0); }
 
     let body = json!({
         "model": "gpt-4-turbo",
         "messages": vec![
-            json!({"role": "system", "content": "Você é um assistente virtual"})
+            json!({"role": "system", "content":
+             "Você é uma IA focada em dar relatorios de estoque com base no que vou te passar
+              Não escreva nada além das informações q eu passei, apenas se eu tiver duvida sobre
+               algo relacionado aquele item."})
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
@@ -117,7 +123,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     let content = res["choices"][0]["message"]["content"].as_str().unwrap_or("Erro na resposta").to_string();
 
     history.push(json!({"role": "assistant", "content": content}));
-    if history.len() > 10 { history.remove(0); }
+    while history.len() > 10 { history.remove(0); }
 
     content
 }
@@ -137,16 +143,15 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
     let row_opt = client.query_opt("SELECT codigo_produto, quantidade_disponivel, nome FROM estoque_and_estoquekits WHERE codigo_produto = $1", &[&user_code]).await.unwrap();    
 
     let mensagem_final = if let Some(row) = row_opt {
-        let id: i32 = row.get(0);
-        let codigo_produto: &str = row.get(1);
-        let quantidade_disponivel: &str = row.get(2);
-        let nome: &str = row.get(3);
+        let codigo_produto: &str = row.get(0);
+        let quantidade_disponivel: &str = row.get(1);
+        let nome: &str = row.get(2);
 
         format!(
             "Item em estoque encontrado!\n\
-            ID no banco: {}\nCódigo do produto: {}\nNome: {}\nQuantidade disponível: {}",
-            id, codigo_produto, nome, quantidade_disponivel
-        )        
+            Código do produto: {}\nNome: {}\nQuantidade disponível: {}",
+            codigo_produto, nome, quantidade_disponivel
+        )      
     } else {
         payload.user_message.clone()
     };
@@ -183,8 +188,6 @@ async fn rotina_de_insercao() {
     
     let url1 = "http://global_trade.cr.wk.net.br/RadarWebWebServices/Areas/Estoque/Estoque.svc/json/BuscarSaldoProduto";
     let url2 = "http://global_trade.cr.wk.net.br/RadarWebWebServices/Areas/Estoque/Estoque.svc/json/BuscarSaldoProdutoKit";
-
-    // Chama a função insert_data para garantir que ela seja usada
     insert_data().await.expect("Erro ao inserir dados!");
 
     loop {
