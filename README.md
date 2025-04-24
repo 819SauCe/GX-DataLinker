@@ -26,4 +26,5 @@ rápidas via API HTTP, permitindo acesso fácil aos relatórios via requisiçõe
 - API Key da OpenAI (.env).
 - Login no WKrada API (.env).
 - Conexão com o banco de dados (.env).
-### Caso você seja funcionario da Global-X pode acessar a pasta do sistema e seguir esse caminho -> \GlobalTrade\Público\João Oqueres\Help - GX_DataLinker
+> 💡 **Funcionários da Global-X**: o sistema completo pode ser acessado na rede interna em:  
+> `\\GlobalTrade\Público\João Oqueres\Help - GX_DataLinker`
