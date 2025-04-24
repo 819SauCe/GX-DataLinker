@@ -39,6 +39,7 @@ struct RespostaIA {
 }
 
 async fn obtain_token() -> Value {
+    dotenv().ok();
     let client = Client::new();
     let dados: Value = serde_json::from_str(&std::env::var("JSON_DATA").unwrap()).unwrap();
     let res = client.post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token").json(&dados).send().await.unwrap().json::<Value>().await.unwrap();
