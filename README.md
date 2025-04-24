@@ -2,10 +2,10 @@
 ## Este projeto é um sistema web completo com frontend e backend, desenvolvido com foco em performance, integração e automação de relatórios empresariais personalizados. A stack utilizada inclui:
 
 - Frontend: Svelte, HTML, CSS e JavaScript.
-- Backend:Python (Django).
+- Backend: Python (Django).
 - Servidores da IA: Rust
 - Sistema: AWS.
-- Docker: focado em alta preformace.
+- Docker: focado em alta performance.
 - Banco de Dados: PostgreSQL.
 
 ## O que ele faz?
