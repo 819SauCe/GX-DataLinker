@@ -94,7 +94,7 @@ async fn inserir_dados(){
             let numero = nota["numero"].as_i64().unwrap_or(0);
             let cliente = nota["idClienteFornecedor"].as_str().unwrap_or("");
             let data_emissao_dt = DateTime::parse_from_rfc3339(data_emissao).map(|dt| dt.naive_utc()).ok();
-            let data_saida_dt = DateTime::parse_from_rfc3339(data_saida).map(|dt| dt.naive_utc()).unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
+            let data_saida_dt = match DateTime::parse_from_rfc3339(data_saida) {Ok(dt) => dt.naive_utc(),Err(_) => continue,};
             let numero_str = numero.to_string();
             let row = client.query_opt("SELECT id_uuid FROM notas_fiscais WHERE chave = $1",&[&chave]).await.unwrap();
             let id_uuid = if let Some(r) = row {r.get::<_, uuid::Uuid>(0)} else {Uuid::new_v4()};
@@ -115,7 +115,7 @@ async fn inserir_dados(){
             if let Some(itens) = nota.get("itens").and_then(|i| i.as_array()) {
                 for item in itens {
                     if let Some(id_produto) = item.get("produtoServico").and_then(|p| p.get("id")).and_then(|v| v.as_str()) {
-                        let existe = client.query_opt("SELECT 1 FROM produtos WHERE id = $1", &[&id_produto]).await.unwrap();
+                        let existe = client.query_opt("SELECT 1 FROM produtos_notas WHERE id = $1", &[&id_produto]).await.unwrap();
                     
                         if existe.is_none() {
                             if let Some(produto) = obter_produto(token_str, id_produto).await {
@@ -131,7 +131,7 @@ async fn inserir_dados(){
                                 let gtin = produto.get("complemento").and_then(|c| c.get("gtin")).and_then(|v| v.as_str()).unwrap_or("");
                     
                                 client.execute(
-                                    "INSERT INTO produtos (id, codigo, nome, descricao, tipo, preco_venda, peso_bruto, peso_liquido, classificacao, referencia, gtin)
+                                    "INSERT INTO produtos_notas (id, codigo, nome, descricao, tipo, preco_venda, peso_bruto, peso_liquido, classificacao, referencia, gtin)
                                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                                      ON CONFLICT (id) DO NOTHING",
                                     &[&id_produto, &codigo, &nome, &descricao, &tipo, &preco_venda, &peso_bruto, &peso_liquido, &classificacao, &referencia, &gtin]
@@ -175,7 +175,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     let body = json!({
         "model": "gpt-4-turbo",
         "messages": vec![
-            json!({"role": "system", "content": "Você é um assistente virtual"})
+            json!({"role": "system", "content": "Você é uma IA focada em fazer relatorios de notas fiscais, retorne os dados que o usuario te passou e responda as perguntas dele, não responda ou escreva nada além do pedido"})
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
@@ -264,7 +264,7 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
 async fn start_http_server() {
     println!("Servidor rodando!");
     let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));   
-    let listener = TcpListener::bind("0.0.0.0:5100").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:5400").await.unwrap();
     axum::serve(listener, app.into_make_service()).await.unwrap();
 }
 

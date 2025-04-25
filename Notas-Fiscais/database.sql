@@ -11,7 +11,7 @@ CREATE TABLE notas_fiscais (
     nomecliente TEXT
 );
 
-CREATE TABLE produtos (
+CREATE TABLE produtos_nota (
     id TEXT PRIMARY KEY,
     codigo TEXT,
     nome TEXT,

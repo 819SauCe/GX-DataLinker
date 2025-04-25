@@ -1,15 +1,13 @@
-use chrono::{DateTime, Local, NaiveDateTime, Timelike, Duration as ChronoDuration};
+use chrono::{Local, Timelike};
 use dotenvy::dotenv;
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
 use tokio::time::{sleep, Duration as TokioDuration};
 use tokio_postgres::NoTls;
-use uuid::Uuid;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tokio_postgres::types::ToSql;
 use tokio::sync::Mutex;
 use once_cell::sync::Lazy;
 use axum::{Router, routing::post, extract::Json, response::IntoResponse};
