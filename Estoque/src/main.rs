@@ -217,6 +217,7 @@ async fn rotina_de_insercao() {
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     tokio::join!(
         start_http_server(),
         rotina_de_insercao()

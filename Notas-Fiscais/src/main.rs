@@ -152,8 +152,6 @@ async fn inserir_dados(){
                             ON CONFLICT (id_nota, id_produto) DO NOTHING;",
                             &[id_uuid_ref, id_produto_ref, &valor_total]
                         ).await.unwrap();
-
-
     
                     }
                     
@@ -181,13 +179,38 @@ async fn tratamento_resposta(mensagem: &str) -> String {
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
-    let res = client.post("https://api.openai.com/v1/chat/completions").bearer_auth(api_key).json(&body).send().await.unwrap().json::<Value>().await.unwrap();
-    let content = res["choices"][0]["message"]["content"].as_str().unwrap_or("Erro na resposta").to_string();
+    let response = client.post("https://api.openai.com/v1/chat/completions")
+        .bearer_auth(&api_key)
+        .json(&body)
+        .send()
+        .await;
 
-    history.push(json!({"role": "assistant", "content": content}));
-    while history.len() > 10 { history.remove(0); }
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_else(|_| "Erro ao ler body".to_string());
+            println!("STATUS: {}", status);
+            println!("BODY:\n{}", text);
 
-    content
+            let json: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "error": "resposta inválida" }));
+            let content = json.get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Erro: sem resposta da IA")
+                .to_string();
+
+            history.push(json!({"role": "assistant", "content": &content}));
+            while history.len() > 10 { history.remove(0); }
+
+            content
+        },
+        Err(e) => {
+            println!("Erro na chamada da API: {}", e);
+            "Erro na requisição para a IA".to_string()
+        }
+    }
 }
 
 #[axum::debug_handler]
@@ -241,7 +264,7 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
 async fn start_http_server() {
     println!("Servidor rodando!");
     let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));   
-    let listener = TcpListener::bind("0.0.0.0:5400").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:5100").await.unwrap();
     axum::serve(listener, app.into_make_service()).await.unwrap();
 }
 
@@ -274,6 +297,7 @@ async fn rotina_de_insercao() {
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     tokio::join!(
         start_http_server(),
         rotina_de_insercao()
