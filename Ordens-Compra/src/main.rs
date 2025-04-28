@@ -137,7 +137,7 @@ async fn insert_data() {
                     if let Some(autorizacoes) = ord["autorizacoes"].as_array() {
                         for auto in autorizacoes {
                             let id_usuario = auto["idUsuario"].as_str().unwrap_or_default();
-                            let exists = client.query("SELECT 1 FROM produtos WHERE id = $1", &[&id_produto]).await.unwrap();
+                            let exists = client.query("SELECT 1 FROM produtos_nota WHERE id = $1", &[&id_produto]).await.unwrap();
                             if !exists.is_empty() {
                                 client.execute(&stmt_prod, &[&id, &id_produto, &id_usuario]).await.unwrap();
                                 let row = client.query_one("SELECT codigo FROM produtos WHERE id = $1", &[&id_produto]).await.unwrap();
@@ -164,7 +164,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     let body = json!({
         "model": "gpt-4-turbo",
         "messages": vec![
-            json!({"role": "system", "content": "Você é um assistente virtual"})
+            json!({"role": "system", "content": "Organize os dados da Ordem de Compra em formato de relatório objetivo, separando por categorias (Dados Gerais, Logística, Financeiro, Observações). Não analise ou sugira ações."})
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
