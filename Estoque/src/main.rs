@@ -37,8 +37,7 @@ struct RespostaIA {
 }
 
 async fn data(url: &str) -> Result<serde_json::Value, reqwest::Error> {
-    dotenv().ok();
-    let login_info: Value = serde_json::from_str(&env::var("JSON_DATA").expect("Falha ao obter a variável de ambiente 'JSON_DATA'")).expect("Falha ao deserializar o JSON da variável 'JSON_DATA'");
+    let login_info: Value = serde_json::from_str(&env::var("BODY_APIV1").expect("Falha ao obter a variável de ambiente 'BODY_APIV1'")).expect("Falha ao deserializar o JSON da variável 'BODY_APIV1'");
     let filtro_estoque = serde_json::json!({"EstoqueProprio": true,"CodigoLocais": "46"});
     let bodies = serde_json::json!({"login": login_info,"filtro": filtro_estoque});
     let mut headers = HeaderMap::new();
@@ -83,7 +82,6 @@ async fn insert_data_from_url(url: &str, client: &tokio_postgres::Client) -> Res
 }
 
 async fn insert_data() -> Result<(), Error> {
-    dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
     let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Falha na conexão");
     tokio::spawn(async move {
@@ -101,11 +99,10 @@ async fn insert_data() -> Result<(), Error> {
 }
 
 async fn tratamento_resposta(mensagem: &str) -> String {
-    dotenv().ok();
     let client = Client::new();
-    let api_key = env::var("API_OPENAI").unwrap();
-
+    let api_key = env::var("API_OPENAI").expect("Variável API_OPENAI não definida");
     let mut history = MESSAGE_HISTORY.lock().await;
+
     history.push(json!({"role": "user", "content": mensagem}));
     while history.len() > 10 { history.remove(0); }
 
@@ -115,7 +112,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
             json!({"role": "system", "content":
              "Você é uma IA focada em dar relatorios de estoque com base no que vou te passar
               Não escreva nada além das informações q eu passei, apenas se eu tiver duvida sobre
-               algo relacionado aquele item."})
+               algo relacionado aquele item. se receber um código mas sem demais informações diga que o item não existe ou não tem em estoque."})
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
@@ -130,7 +127,6 @@ async fn tratamento_resposta(mensagem: &str) -> String {
 
 #[axum::debug_handler]
 async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
-    dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
     let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Erro ao conectar no banco");
     tokio::spawn(async move {

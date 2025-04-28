@@ -1,5 +1,99 @@
-/target
+# Diretórios e arquivos comuns
 .env
-.env.
-/env
-env
+.env.*
+.envrc
+.env.local
+*.env
+*.env.*
+/env/
+/target/
+/build/
+/dist/
+/out/
+/node_modules/
+/vendor/
+.cache/
+tmp/
+temp/
+*.log
+logs/
+*.tmp
+*.bak
+*.swp
+
+# Banco de dados e backups
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.sql
+*.bak
+*.backup
+
+# IDEs e editores
+.vscode/
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# SO-specific
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Arquivos de controle
+*.pid
+*.seed
+*.pem
+*.key
+*.crt
+*.pfx
+*.cert
+
+# Outros
+*.zip
+*.tar
+*.gz
+*.7z
+*.rar
+*.tgz
+*.bz2
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Kubernetes
+*.yaml
+*.yml
+
+# Git
+.gitignore
+.gitattributes
+
+# Python (caso tenha)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Java (caso tenha)
+*.class
+*.jar
+*.war
+*.ear
+*.map
+
+# Frontend (caso tenha)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Exceções (opcional)
+!important.env

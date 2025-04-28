@@ -12,11 +12,12 @@ use tokio::sync::Mutex;
 use once_cell::sync::Lazy;
 use axum::{Router, routing::post, extract::Json, response::IntoResponse};
 use chrono::NaiveDate;
+use dotenvy::from_path;
+use std::path::Path;
 
 async fn obtain_token() -> Value {
-    dotenv().ok();
     let client = Client::new();
-    let dados: Value = serde_json::from_str(&std::env::var("JSON_DATA").unwrap()).unwrap();
+    let dados: Value = serde_json::from_str(&std::env::var("BODY_APIV2").unwrap()).unwrap();
     let res = client.post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token").json(&dados).send().await.unwrap().json::<Value>().await.unwrap();
 
     res
@@ -31,7 +32,6 @@ async fn obter_produto(token: &str) -> Option<Value> {
 }
 
 async fn separando_dados() {
-    dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
     let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Falha na conexão");
     tokio::spawn(async move {
@@ -69,12 +69,7 @@ async fn separando_dados() {
 
                 let nome_marca = if !id_marca.is_empty() {
                     let url = format!("https://global_trade.cr.wk.net.br/wk.api/api/empresarial/v1/informacao-complementar/{}", id_marca);
-                    let resp = reqwest::Client::new()
-                        .get(&url)
-                        .bearer_auth(token)
-                        .send()
-                        .await
-                        .ok();
+                    let resp = reqwest::Client::new().get(&url).bearer_auth(token).send().await.ok();
                 
                     if let Some(response) = resp {
                         if let Ok(json) = response.json::<Value>().await {
@@ -107,6 +102,10 @@ async fn separando_dados() {
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
+    from_path(Path::new("../.env")).expect("Falha ao carregar .env");
+    println!("DATABASE_URL: {:?}", env::var("DATABASE_URL"));
+    println!("BODY_APIV2: {:?}", env::var("BODY_APIV2"));
+    println!("API_OPENAI: {:?}", env::var("API_OPENAI"));
+
     separando_dados().await;
 }

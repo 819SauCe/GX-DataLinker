@@ -1,5 +1,4 @@
 use chrono::{Local, Timelike};
-use dotenvy::dotenv;
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
@@ -12,6 +11,8 @@ use tokio::sync::Mutex;
 use once_cell::sync::Lazy;
 use axum::{Router, routing::post, extract::Json, response::IntoResponse};
 use chrono::NaiveDate;
+use dotenvy::from_path;
+use std::path::Path;
 
 static MESSAGE_HISTORY: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
@@ -30,16 +31,14 @@ fn parse_date_br(date_str: &str) -> Option<NaiveDate> {
 }
 
 async fn obtain_token() -> Value {
-    dotenv().ok();
     let client = Client::new();
-    let dados: Value = serde_json::from_str(&std::env::var("JSON_DATA").unwrap()).unwrap();
+    let dados: Value = serde_json::from_str(&std::env::var("BODY_APIV2").unwrap()).unwrap();
     let res = client.post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token").json(&dados).send().await.unwrap().json::<Value>().await.unwrap();
 
     res
 }
 
 async fn obtain_ord(token: &str) -> Value {
-    dotenv().ok();
     let client = Client::new();
     let url = format!("https://global_trade.cr.wk.net.br/wk.api/api/compras/v1/ordem-compra?situacaoAutorizacao=Autorizada&situacaoAtendimento=Pendente");
     let res = client.get(&url).bearer_auth(token).send().await.unwrap().json::<Value>().await.unwrap();
@@ -48,7 +47,6 @@ async fn obtain_ord(token: &str) -> Value {
 }
 
 async fn insert_data() {
-    dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
     let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Falha na conexão");
     tokio::spawn(async move {
@@ -153,18 +151,19 @@ async fn insert_data() {
 }
 
 async fn tratamento_resposta(mensagem: &str) -> String {
-    dotenv().ok();
     let client = Client::new();
-    let api_key = env::var("API_OPENAI").unwrap();
-
+    let api_key = std::env::var("API_OPENAI").expect("API_OPENAI não definida");
     let mut history = MESSAGE_HISTORY.lock().await;
+
     history.push(json!({"role": "user", "content": mensagem}));
     while history.len() > 10 { history.remove(0); }
 
     let body = json!({
         "model": "gpt-4-turbo",
         "messages": vec![
-            json!({"role": "system", "content": "Organize os dados da Ordem de Compra em formato de relatório objetivo, separando por categorias (Dados Gerais, Logística, Financeiro, Observações). Não analise ou sugira ações."})
+            json!({"role": "system", "content": "Organize os dados da Ordem de Compra em formato de relatório objetivo,
+             separando por categorias (Dados Gerais, Logística, Financeiro, Observações). Não analise ou sugira ações.
+              se receber um código mas sem demais informações diga que o item não existe ou não foi comprado."})
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
     });
 
@@ -214,7 +213,6 @@ async fn tratamento_resposta(mensagem: &str) -> String {
 
 #[axum::debug_handler]
 async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
-    dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
     let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Erro ao conectar no banco");
     tokio::spawn(async move {
@@ -359,7 +357,8 @@ async fn rotina_de_insercao() {
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
+    from_path(Path::new("../.env")).expect("Falha ao carregar .env");
+
     tokio::join!(
         start_http_server(),
         rotina_de_insercao()
