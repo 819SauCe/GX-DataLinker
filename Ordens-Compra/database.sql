@@ -38,3 +38,4 @@ CREATE TABLE ord_produtos (
 );
 
 ALTER TABLE ord_produtos ADD CONSTRAINT ord_produtos_unique UNIQUE (id_ordem, id_produto);
+ALTER TABLE produtos_nota ADD COLUMN nome_valor_item text;
