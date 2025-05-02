@@ -110,6 +110,33 @@ async fn insert_data() {
     }
 }
 
+async fn registrar_estoque_diario() {
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
+    let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Erro ao conectar no banco");
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Erro conexão: {}", e);
+        }
+    });
+
+    let rows = client.query(
+        "SELECT codigo_produto, quantidade_disponivel FROM estoque_and_estoquekits",
+        &[]
+    ).await.unwrap();
+
+    for row in rows {
+        let codigo: String = row.get(0);
+        let qtd_str: String = row.get(1);
+        let qtd = qtd_str.replace(".", "").replace(",", ".").parse::<f64>().unwrap_or(0.0);
+
+        client.execute(
+            "INSERT INTO estoque_diario (codigo_produto, quantidade) VALUES ($1, $2)",
+            &[&codigo, &qtd]
+        ).await.unwrap();
+    }
+}
+
+
 async fn tratamento_resposta(mensagem: &str) -> String {
     let client = Client::new();
     let api_key = std::env::var("API_OPENAI").expect("API_OPENAI não definida");
@@ -119,7 +146,7 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     while history.len() > 10 { history.remove(0); }
 
     let body = json!({
-        "model": "gpt-4-turbo",
+        "model": "gpt-4o-2024-11-20",
         "messages": vec![
             json!({"role": "system", "content": "Você é um IA focada em dar relatorios de items, não opne nem diga algo desnecessario se eu n pedir"})
         ].into_iter().chain(history.clone()).collect::<Vec<_>>()
@@ -171,63 +198,47 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
 
     let codigo_input = payload.user_message.trim();
 
-    // Lucro mensal do item
+    if codigo_input.len() < 4 || !codigo_input.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        let resposta = tratamento_resposta(codigo_input).await;
+        return Json(RespostaIA { resposta });
+    }
+    
+    // Lucro mensal
     let lucro_mensal = client.query(
-        "SELECT 
-            TO_CHAR(n.dataemissao::timestamp, 'YYYY-MM') AS mes_ano,
-            SUM(CASE WHEN n.tipo = 'Saída' THEN i.valor_total ELSE 0 END) AS total_vendas,
-            SUM(CASE WHEN n.tipo = 'Entrada' THEN i.valor_total ELSE 0 END) AS total_compras,
-            SUM(CASE WHEN n.tipo = 'Saída' THEN i.valor_total ELSE 0 END) - 
-            SUM(CASE WHEN n.tipo = 'Entrada' THEN i.valor_total ELSE 0 END) AS lucro
+        "SELECT TO_CHAR(n.dataemissao::timestamp, 'YYYY-MM') AS mes_ano,
+                SUM(CASE WHEN n.tipo = 'Saída' THEN i.valor_total ELSE 0 END),
+                SUM(CASE WHEN n.tipo = 'Entrada' THEN i.valor_total ELSE 0 END),
+                SUM(CASE WHEN n.tipo = 'Saída' THEN i.valor_total ELSE 0 END) - 
+                SUM(CASE WHEN n.tipo = 'Entrada' THEN i.valor_total ELSE 0 END)
          FROM itens_nota i
          JOIN notas_fiscais n ON i.id_nota = n.id_uuid
          JOIN produtos_nota p ON i.id_produto = p.id
-         WHERE p.codigo = $1
-           AND n.dataemissao::timestamp >= CURRENT_DATE - INTERVAL '12 months'
-         GROUP BY TO_CHAR(n.dataemissao::timestamp, 'YYYY-MM')
+         WHERE p.codigo = $1 AND n.dataemissao >= CURRENT_DATE - INTERVAL '12 months'
+         GROUP BY TO_CHAR(n.dataemissao, 'YYYY-MM')
          ORDER BY mes_ano;",
         &[&codigo_input]
     ).await.unwrap();
 
-    // Lucro por produto nos últimos 12 meses
+    // Lucro total
     let lucro_anual_total = client.query(
-        "SELECT 
-            p.codigo,
-            SUM(CASE WHEN n.tipo = 'Saída' THEN i.valor_total ELSE 0 END) - 
-            SUM(CASE WHEN n.tipo = 'Entrada' THEN i.valor_total ELSE 0 END) AS lucro
+        "SELECT p.codigo,
+                SUM(CASE WHEN n.tipo = 'Saída' THEN i.valor_total ELSE 0 END) - 
+                SUM(CASE WHEN n.tipo = 'Entrada' THEN i.valor_total ELSE 0 END)
          FROM itens_nota i
          JOIN notas_fiscais n ON i.id_nota = n.id_uuid
          JOIN produtos_nota p ON i.id_produto = p.id
-         WHERE n.dataemissao::timestamp >= CURRENT_DATE - INTERVAL '12 months'
-         GROUP BY p.codigo
-         ORDER BY lucro DESC;",
+         WHERE n.dataemissao >= CURRENT_DATE - INTERVAL '12 months'
+         GROUP BY p.codigo;",
         &[]
     ).await.unwrap();
 
     let mut produtos: Vec<(String, f64)> = lucro_anual_total
         .iter()
-        .map(|r| (r.get::<_, &str>(0).to_string(), r.get::<_, f64>(1)))
+        .map(|r| (r.get(0), r.get(1)))
         .collect();
 
     let total_lucro: f64 = produtos.iter().map(|(_, v)| *v).sum();
-
     produtos.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut acumulado = 0.0;
-    let mut classificacao_item = "C";
-    for (codigo, lucro) in &produtos {
-        let percentual = if total_lucro > 0.0 { (lucro / total_lucro) * 100.0 } else { 0.0 };
-        acumulado += percentual;
-        if codigo == codigo_input {
-            classificacao_item = if acumulado <= 20.0 {
-                "A"
-            } else if acumulado <= 50.0 {
-                "B"
-            } else {
-                "C"
-            };
-        }
-    }
 
     let lucro_item: f64 = produtos.iter()
         .find(|(codigo, _)| codigo == codigo_input)
@@ -240,29 +251,84 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
         0.0
     };
 
-    let mut mensagem_final = format!("Relatório de lucro para o item '{}':\n", codigo_input);
-    if lucro_mensal.is_empty() {
-        mensagem_final.push_str("Nenhum dado mensal encontrado.\n");
-    } else {
-        for row in &lucro_mensal {
-            let mes_ano: &str = row.get(0);
-            let total_vendas: f64 = row.get(1);
-            let total_compras: f64 = row.get(2);
-            let lucro: f64 = row.get(3);
-            mensagem_final += &format!(
-                "- {} | Vendas: {:.2} | Compras: {:.2} | Lucro: {:.2}\n",
-                mes_ano, total_vendas, total_compras, lucro
-            );
+    let mut acumulado = 0.0;
+    let mut classificacao = "C";
+    for (codigo, valor) in &produtos {
+        let p = if total_lucro > 0.0 { (*valor / total_lucro) * 100.0 } else { 0.0 };
+        acumulado += p;
+        if codigo == codigo_input {
+            classificacao = if acumulado <= 20.0 {
+                "A"
+            } else if acumulado <= 50.0 {
+                "B"
+            } else {
+                "C"
+            };
         }
     }
 
+    let mut mensagem_final = format!("**Relatório do item '{}':**\n", codigo_input);
+    for row in &lucro_mensal {
+        let mes_ano = row.get::<_, String>(0);
+        let vendas: f64 = row.get(1);
+        let compras: f64 = row.get(2);
+        let lucro: f64 = row.get(3);
+        mensagem_final += &format!(
+            "- {} | Vendas: {:.2} | Compras: {:.2} | Lucro: {:.2}\n",
+            mes_ano, vendas, compras, lucro
+        );
+    }
+
     mensagem_final += &format!(
-        "\nLucro total do item (últimos 12 meses): {:.2}\nLucro total geral: {:.2}\nParticipação no lucro: {:.2}%\nClassificação ABC: {}\n",
-        lucro_item,
-        total_lucro,
-        percentual_item,
-        classificacao_item
+        "\nLucro total (12 meses): {:.2}\nLucro geral: {:.2}\nParticipação: {:.2}%\nClassificação ABC: {}\n",
+        lucro_item, total_lucro, percentual_item, classificacao
     );
+
+    if lucro_item == 0.0 && lucro_mensal.is_empty() {
+        mensagem_final += "\n**Observação:** Item não teve movimentação nos últimos 12 meses.\n";
+    }
+
+    // Estoque e previsão
+    if let Some(row) = client.query_opt(
+        "SELECT quantidade_disponivel FROM estoque_and_estoquekits WHERE codigo_produto = $1",
+        &[&codigo_input]
+    ).await.unwrap()
+    {
+        let qtd_str: String = row.get(0);
+        let qtd_estoque = qtd_str.replace(".", "").replace(",", ".").parse::<f64>().unwrap_or(0.0);
+
+        let consumo = client.query_opt(
+            "SELECT SUM(i.valor_total) FROM itens_nota i
+             JOIN notas_fiscais n ON i.id_nota = n.id_uuid
+             JOIN produtos_nota p ON i.id_produto = p.id
+             WHERE p.codigo = $1 AND n.tipo = 'Saída' AND n.dataemissao >= CURRENT_DATE - INTERVAL '30 days'",
+            &[&codigo_input]
+        ).await.unwrap();
+
+        let total_consumo: f64 = consumo
+            .and_then(|r| r.get::<_, Option<f64>>(0))
+            .unwrap_or(0.0);
+
+        let media_diaria = total_consumo / 30.0;
+        let dias = if media_diaria > 0.0 {
+            qtd_estoque / media_diaria
+        } else {
+            f64::INFINITY
+        };
+
+        mensagem_final += &format!(
+            "\n**Previsão de Estoque:**\n- Estoque atual: {:.2}\n- Consumo médio diário (R$): {:.2}\n",
+            qtd_estoque, media_diaria
+        );
+
+        if dias.is_finite() {
+            mensagem_final += &format!("- Duração estimada: {:.1} dias\n", dias);
+        } else {
+            mensagem_final += "- Sem consumo recente. Estoque não se esgotará.\n";
+        }
+    } else {
+        mensagem_final += "\n**Estoque:** Informação indisponível.\n";
+    }
 
     let resposta = tratamento_resposta(&mensagem_final).await;
     Json(RespostaIA { resposta })
@@ -270,13 +336,15 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
 
 async fn start_http_server() {
     println!("Servidor rodando!");
-    let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));   
+    let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));
     let listener = TcpListener::bind("0.0.0.0:5300").await.unwrap();
     axum::serve(listener, app.into_make_service()).await.unwrap();
 }
 
 async fn rotina_de_insercao() {
     let inicio = Local::now();
+    let mut ultimo_registro = None;
+
     loop {
         let agora = Local::now();
         let uptime = agora.signed_duration_since(inicio);
@@ -296,6 +364,15 @@ async fn rotina_de_insercao() {
         if minutos % 15 == 0 {
             println!("inserindo dados!");
             insert_data().await;
+        }
+
+        if agora.hour() == 0 && agora.minute() == 0 {
+            let hoje = agora.date_naive();
+            if ultimo_registro != Some(hoje) {
+                println!("Registrando estoque diário (meia-noite)...");
+                registrar_estoque_diario().await;
+                ultimo_registro = Some(hoje);
+            }
         }
 
         sleep(TokioDuration::from_secs(60)).await;
