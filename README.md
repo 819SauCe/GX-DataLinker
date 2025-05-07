@@ -24,6 +24,7 @@ rápidas via API HTTP, permitindo acesso fácil aos relatórios via requisiçõe
 - Python instalado.
 - PostgreSQL instalado.
 - Node e NPM.
+- Vite (Variavel global)
 - Ter Créditos na openIA
 - API Key da OpenAI (.env).
 - Login no WKrada API (.env).
