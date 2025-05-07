@@ -14,7 +14,7 @@
 
   const fetchContainers = async (token) => {
     try {
-      const res = await fetch("http://localhost:3000/containers", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/containers`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
@@ -44,13 +44,13 @@
     };
 
     if (editingId) {
-      await fetch(`http://localhost:3000/containers/${editingId}`, {
+      await fetch(`${import.meta.env.VITE_API_URL}/containers/${editingId}`, {
         method: "PUT",
         headers,
         body: JSON.stringify(data),
       });
     } else {
-      await fetch("http://localhost:3000/containers", {
+      await fetch(`${import.meta.env.VITE_API_URL}/containers`, {
         method: "POST",
         headers,
         body: JSON.stringify(data),
@@ -81,7 +81,7 @@
 
   const deleteContainer = async (id) => {
     const token = localStorage.getItem("token");
-    await fetch(`http://localhost:3000/containers/${id}`, {
+    await fetch(`${import.meta.env.VITE_API_URL}/containers/${id}`, {
       method: "DELETE",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
