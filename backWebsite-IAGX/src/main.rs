@@ -11,6 +11,8 @@ use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::{env, net::SocketAddr, path::Path as StdPath};
 use dotenvy::from_path;
 use tower_http::cors::{Any, CorsLayer};
+use jsonwebtoken::{encode, EncodingKey, Header};
+use chrono::{Utc, Duration};
 
 #[derive(Deserialize)]
 struct RegisterRequest {
@@ -36,6 +38,14 @@ struct ApiResponse {
     message: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    username: String,
+    role: String,
+    exp: usize,
+}
+
 #[derive(Deserialize)]
 struct ConnectionRequest {
     name: String,
@@ -59,11 +69,21 @@ struct Connection {
     port: String,
 }
 
-// Middleware simples de autenticação por token
 async fn require_auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, Response> {
     if let Some(auth) = req.headers().get("Authorization") {
-        if auth == "Bearer token123" {
-            return Ok(next.run(req).await);
+        if let Ok(auth_str) = auth.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                let token = auth_str.trim_start_matches("Bearer ");
+                let key = b"seu_segredo_super_forte";
+                let token_data = jsonwebtoken::decode::<Claims>(
+                    token,
+                    &jsonwebtoken::DecodingKey::from_secret(key),
+                    &jsonwebtoken::Validation::default(),
+                );
+                if token_data.is_ok() {
+                    return Ok(next.run(req).await);
+                }
+            }
         }
     }
     Err(StatusCode::UNAUTHORIZED.into_response())
@@ -88,7 +108,7 @@ async fn register(State(pool): State<PgPool>, Json(payload): Json<RegisterReques
 }
 
 async fn login(State(pool): State<PgPool>, Json(payload): Json<LoginRequest>) -> Json<LoginResponse> {
-    let user = sqlx::query("SELECT username, password FROM users WHERE email = $1")
+    let user = sqlx::query("SELECT username, password, type FROM users WHERE email = $1")
         .bind(&payload.email)
         .fetch_one(&pool)
         .await;
@@ -97,10 +117,29 @@ async fn login(State(pool): State<PgPool>, Json(payload): Json<LoginRequest>) ->
         Ok(row) => {
             let stored_password: String = row.get("password");
             let username: String = row.get("username");
+            let role: String = row.try_get("type").unwrap_or("user".into());
 
             if stored_password == payload.password {
+                let expiration = Utc::now()
+                    .checked_add_signed(Duration::hours(24))
+                    .unwrap()
+                    .timestamp() as usize;
+
+                let claims = Claims {
+                    sub: payload.email.clone(),
+                    username: username.clone(),
+                    role: role.clone(),
+                    exp: expiration,
+                };
+
+                let token = encode(
+                    &Header::default(),
+                    &claims,
+                    &EncodingKey::from_secret(b"seu_segredo_super_forte"),
+                ).unwrap();
+
                 Json(LoginResponse {
-                    message: "Login bem-sucedido".into(),
+                    message: token,
                     username,
                 })
             } else {
@@ -172,7 +211,7 @@ async fn delete_connection(State(pool): State<PgPool>, Path(id): Path<i32>) -> J
 #[tokio::main]
 async fn main() {
     from_path(StdPath::new("../.env")).expect("Falha ao carregar .env");
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
+    let db_url = env::var("DATABASE_URL_FOR_WEB").expect("DATABASE_URL_FOR_WEB não definida");
     let pool = PgPoolOptions::new().connect(&db_url).await.unwrap();
 
     let cors = CorsLayer::new()

@@ -4,23 +4,26 @@
   let regName = "", regEmail = "", regPassword = "";
 
   const handleLogin = async () => {
-    const res = await fetch('http://localhost:3000/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: loginEmail, password: loginPassword })
-    });
-    const data = await res.json();
-    console.log(data);
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: loginEmail, password: loginPassword })
+  });
 
-    if (data.message === "Login bem-sucedido") {
-      localStorage.setItem('username', data.username);
-      localStorage.setItem('token', 'token123'); // token fixo, ajustar depois com JWT
-      window.location.href = "/";
-    }
-  };
+  const data = await res.json();
+  console.log(data);
+
+  if (res.ok && data.message && data.message.split(".").length === 3) {
+    localStorage.setItem('username', data.username);
+    localStorage.setItem('token', data.message);
+    window.location.href = "/";
+  } else {
+    alert("Login falhou!");
+  }
+};
 
   const handleRegister = async () => {
-    const res = await fetch('http://localhost:3000/register', {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: regName, email: regEmail, password: regPassword })
@@ -32,7 +35,8 @@
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 
-<div class="container mt-5">
+<div class="__body__login">
+  <div class="container mt-0">
   <div class="row justify-content-center">
     <div class="col-md-6">
       <ul class="nav nav-tabs mb-3">
@@ -76,3 +80,35 @@
     </div>
   </div>
 </div>
+</div>
+
+<style>
+  .__body__login {
+    width: 100%;
+    height: 92vh;
+    background-color: #2a2a2a;
+    color: white;
+  }
+
+  button {
+    color: white;
+    background-color: orange;
+    border: 1px solid rgb(116, 116, 116);
+  }
+
+  button:hover {
+    color: white;
+    background-color: rgb(219, 142, 0);
+    border: 1px solid rgb(116, 116, 116);
+  }
+
+  .nav-link {
+    color: orange;
+    margin-top: 5rem;
+  }
+
+  .nav-link:hover {
+    color: rgb(219, 142, 0);
+  }
+
+</style>

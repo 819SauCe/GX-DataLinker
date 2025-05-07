@@ -91,8 +91,8 @@ async fn insert_data() -> Result<(), Error> {
     });
     println!("Banco conectado!");
 
-    let url1 = "https://global_trade.cr.wk.net.br/RadarWebWebServices/Areas/Estoque/Estoque.svc/json/BuscarSaldoProduto";
-    let url2 = "https://global_trade.cr.wk.net.br/RadarWebWebServices/Areas/Estoque/Estoque.svc/json/BuscarSaldoProdutoKit";
+    let url1 = "http://global_trade.cr.wk.net.br/RadarWebWebServices/Areas/Estoque/Estoque.svc/json/BuscarSaldoProduto";
+    let url2 = "http://global_trade.cr.wk.net.br/RadarWebWebServices/Areas/Estoque/Estoque.svc/json/BuscarSaldoProdutoKit";
     tokio::try_join!(insert_data_from_url(url1, &client),insert_data_from_url(url2, &client),)?;
 
     Ok(())
