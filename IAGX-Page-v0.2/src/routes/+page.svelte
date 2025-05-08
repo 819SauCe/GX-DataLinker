@@ -11,6 +11,11 @@
     port = "";
   let editingId = null;
   let isAdmin = false;
+  let showOverlay = true;
+
+function hideOverlay() {
+  showOverlay = false;
+}
 
   const fetchContainers = async (token) => {
     try {
@@ -120,55 +125,58 @@
 
 <div class="__body__main_menu__ flex flex-wrap gap-4 justify-center">
   {#each containers as c}
-    <a
-      href={`/container/${c.id}?name=${encodeURIComponent(c.name)}`}
-      class="text-lg font-bold text-orange-400 hover:underline"
-    >
-      <div class="__container mb-4 flex flex-col gap-2 p-2">
+    <div class="__container mb-4 flex flex-col gap-2 p-2">
+      <a
+        href={`/container/${c.id}?name=${encodeURIComponent(c.name)}`}
+        class="text-lg font-bold text-orange-400 hover:underline"
+      >
         <h3>{c.name}</h3>
         <p class="text-sm text-white"></p>
-        <p>{c.description}</p>
+        <p class="descricao">{c.description}</p>
         <h4>Líderes:</h4>
         <div class="lideres" style="display: flex;">
           <p class="lideres__container">{c.leader_1}</p>
           <p class="lideres__container">{c.leader_2}</p>
           <p class="lideres__container">{c.leader_3}</p>
         </div>
-      </div>
-    </a>
-    {#if isAdmin}
-      <h4>
-        <a
-          href={`/container/${c.id}?name=${encodeURIComponent(c.name)}`}
-          class="text-lg font-bold text-orange-400 hover:underline"
-          >{c.ip}:{c.port}</a
-        >
-      </h4>
-      <div class="flex gap-2">
-        <button on:click={() => editContainer(c)}>Editar</button>
-        <button on:click={() => deleteContainer(c.id)}>Deletar</button>
+        <h4 class="mt-2">{c.ip}:{c.port}</h4>
+      </a>
+      {#if isAdmin}
+        <div class="flex gap-2 mt-auto">
+          <button on:click={() => editContainer(c)}>Editar</button>
+          <button on:click={() => deleteContainer(c.id)}>Deletar</button>
+        </div>
+      {/if}
+    </div>
+  {/each}
+
+  {#if isAdmin}
+  <div class="admin-form" style="position: relative; width: 20rem; height: 15rem;">
+    {#if showOverlay}
+      <div
+        on:click={hideOverlay} class="overlay"
+        style="position: absolute; z-index: 10; width: 100%; height: 100%; background-color: #151d25; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; border-radius: 10px; font-size: 5rem;border: 1px solid #5e5e5e;">
+        +
       </div>
     {/if}
-  {/each}
-</div>
 
-{#if isAdmin}
-  <div
-    class="mb-4"
-    style="display: flex; gap: 0.3rem; flex-direction: column; width: 20rem; height: 15rem; border-radius: 10px; padding: 0.3rem"
-  >
-    <input bind:value={name} placeholder="Nome" required />
-    <input bind:value={description} placeholder="Descrição" />
-    <input bind:value={leader1} placeholder="Líder 1" />
-    <input bind:value={leader2} placeholder="Líder 2" />
-    <input bind:value={leader3} placeholder="Líder 3" />
-    <input bind:value={ip} placeholder="IP" required />
-    <input bind:value={port} placeholder="Porta" required />
-    <button type="button" on:click={saveContainer}>
-      {editingId ? "Atualizar" : "Adicionar"}
-    </button>
+    <div
+      class="mb-4"
+      style="display: flex; gap: 0.3rem; flex-direction: column; width: 100%; height: 100%; border-radius: 10px; padding: 0.3rem;">
+      <input bind:value={name} placeholder="Nome" required />
+      <input bind:value={description} placeholder="Descrição" />
+      <input bind:value={leader1} placeholder="Líder 1" />
+      <input bind:value={leader2} placeholder="Líder 2" />
+      <input bind:value={leader3} placeholder="Líder 3" />
+      <input bind:value={ip} placeholder="IP" required />
+      <input bind:value={port} placeholder="Porta" required />
+      <button type="button" on:click={saveContainer}>
+        {editingId ? "Atualizar" : "Adicionar"}
+      </button>
+    </div>
   </div>
 {/if}
+</div>
 
 <style>
   .__body__main_menu__ {
@@ -176,10 +184,24 @@
     justify-content: center;
     align-items: center;
     background-color: #2a2a2a;
-    height: 92vh;
+    height: auto;
+  }
+
+  .__body__main_menu__ h4 {
+    font-size: 1.1rem;
+    margin: 0%;
+    padding: 0%;
+  }
+
+  .__body__main_menu__ p {
+    font-size: 0.8rem;
+    margin: 0%;
+    padding: 0%;
   }
 
   .__container {
+    display: flex;
+    justify-content: center;
     background-color: #151d25;
     border: 1px solid #5e5e5e;
     border-radius: 10px;
@@ -187,12 +209,63 @@
     height: 15rem;
     padding: 0.3rem;
     color: white;
-    gap: 0.1px;
+    transition: all 0.3s ease-in-out;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    margin-top: 1rem;
+  }
+
+  .__container:hover {
+    width: 21rem;
+    height: 16rem;
+  }
+
+  .__container p {
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .admin-form {
+    position: relative;
+    width: 20rem;
+    height: 15rem;
+    transition: all 0.3s ease-in-out;
+  }
+
+  .admin-form:hover {
+    width: 21rem !important;
+    height: 16rem !important;
+  }
+
+  .admin-form:hover .overlay,
+  .admin-form:hover .mb-4 {
+    width: 100%;
+    height: 100%;
+  }
+
+  .overlay {
+    position: absolute;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    background-color: #151d25;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    cursor: pointer;
+    border-radius: 10px;
+    font-size: 5rem;
+    border: 1px solid #5e5e5e;
+    transition: all 0.3s ease-in-out;
+    pointer-events: auto;
   }
 
   .mb-4 {
     background-color: #151d25;
     border: 1px solid #5e5e5e;
+    transition: all 0.3s ease-in-out;
   }
 
   input {
@@ -203,17 +276,20 @@
     background-color: #343a40;
     color: white;
   }
+
   input::placeholder {
     color: #b0b0b0;
   }
+
   button {
     height: 1.5rem;
-    border-radius: 10rem;
+    border-radius: 7px;
     border: none;
     background-color: orange;
     color: rgb(0, 0, 0);
     transition: all 0.2s ease-in-out;
   }
+
   button:hover {
     cursor: pointer;
     background-color: rgb(255, 177, 33);
@@ -223,9 +299,6 @@
     color: white;
     text-decoration: none;
     transition: all 0.2s ease-in-out;
-  }
-  a:hover {
-    color: orange;
   }
 
   .lideres {
@@ -237,6 +310,14 @@
     justify-content: center;
     width: 4rem;
     background-color: #373737;
-    border-radius: 35%;
+    border-radius: 7px;
+  }
+
+  .lideres__container p {
+    padding-bottom: 5px;
+  }
+
+  .descricao {
+    color: #b0b0b0;
   }
 </style>
