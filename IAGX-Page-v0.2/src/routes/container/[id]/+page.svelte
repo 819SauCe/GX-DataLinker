@@ -1,11 +1,12 @@
 <script>
   import { page } from "$app/stores";
   import { onMount } from "svelte";
-  
+  import { marked } from "marked";
+  import { tick } from "svelte";
+  marked.setOptions({ sanitize: true });
 
   let messages = [];
   let message = "";
-  let socket;
   let id = "",
     name = "",
     ip = "",
@@ -21,30 +22,39 @@
       const data = await res.json();
       ip = data.ip;
       port = data.port;
-      connect();
+      messages = [
+        ...messages,
+        { type: "info", text: `✅ Conectado a ${name}` },
+      ];
     }
   };
 
-  const connect = () => {
-    socket = new WebSocket(`ws://${ip}:${port}`);
-    socket.onmessage = (e) =>
-      (messages = [...messages, { type: "server", text: e.data }]);
-    socket.onopen = () =>
-      (messages = [
-        ...messages,
-        { type: "info", text: `✅ Conectado a ${name}` },
-      ]);
-    socket.onclose = () =>
-      (messages = [
-        ...messages,
-        { type: "info", text: `❌ Conexão encerrada` },
-      ]);
-  };
+  const sendMessage = async () => {
+    if (!message.trim()) return;
 
-  const sendMessage = () => {
-    if (socket?.readyState === WebSocket.OPEN && message.trim()) {
-      messages = [...messages, { type: "user", text: message }];
-      socket.send(JSON.stringify({ user_message: message }));
+    messages = [...messages, { type: "user", text: message }];
+    await tick();
+
+    try {
+      const res = await fetch(`http://${ip}:${port}/api/gerar_relatorio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_message: message }),
+      });
+      const data = await res.json();
+      messages = [
+        ...messages,
+        {
+          type: "server",
+          text: data.relatorio || data.error || "Resposta inesperada.",
+        },
+      ];
+    } catch (err) {
+      messages = [
+        ...messages,
+        { type: "server", text: "❌ Erro na comunicação com o servidor." },
+      ];
+    } finally {
       message = "";
     }
   };
@@ -76,11 +86,10 @@
     {name}
   </h1>
   <hr style="color: white;" />
-
   <div
     class="__chat__"
     bind:this={chatBox}
-    style="overflow-y: auto; width: 100%; height: 29rem;"
+    style="overflow-y: scroll; scrollbar-width: none; -ms-overflow-style: none; width: 100%; height: 29rem;"
   >
     {#each messages as msg}
       <div
@@ -89,24 +98,24 @@
         padding: 0.5rem;
         text-align: {msg.type === 'user' ? 'right' : 'left'};
         background-color: {msg.type === 'user'
-          ? '#0d6efd'
+          ? '#ffeac9'
           : msg.type === 'server'
-            ? '#198754'
+            ? 'orange'
             : '#6c757d'};
+        color: {msg.type === 'server' ? 'black' : 'black'};
         margin: 0.25rem;
         border-radius: 8px;
-        max-width: 60%;
+        width: fit-content;
+        max-width: 40rem;
         margin-left: {msg.type === 'user' ? 'auto' : '0'};
         margin-right: {msg.type === 'user' ? '0' : 'auto'};
       "
       >
-        {msg.text}
+        {@html marked(msg.text)}
       </div>
     {/each}
   </div>
-
   <hr style="color: white;" />
-
   <div class="input-group mb-3" style="max-width: 93rem; margin: auto;">
     <input
       type="text"
@@ -124,3 +133,9 @@
     >
   </div>
 </div>
+
+<style>
+  .__chat__::-webkit-scrollbar {
+    display: none;
+  }
+</style>
