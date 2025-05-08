@@ -184,6 +184,7 @@ function hideOverlay() {
     justify-content: center;
     align-items: center;
     background-color: #2a2a2a;
+    min-height: 92vh;
     height: auto;
   }
 
@@ -201,7 +202,6 @@ function hideOverlay() {
 
   .__container {
     display: flex;
-    justify-content: center;
     background-color: #151d25;
     border: 1px solid #5e5e5e;
     border-radius: 10px;
@@ -302,13 +302,17 @@ function hideOverlay() {
   }
 
   .lideres {
+    margin-top: 0.5rem;
     gap: 0.3rem;
   }
 
   .lideres__container {
     display: flex;
     justify-content: center;
-    width: 4rem;
+    align-items: center;
+    width: 5rem;
+    height: 1.9rem;
+    line-height: 1;
     background-color: #373737;
     border-radius: 7px;
   }

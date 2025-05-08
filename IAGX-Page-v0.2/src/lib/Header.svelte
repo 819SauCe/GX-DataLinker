@@ -17,10 +17,10 @@
           <a class="nav-link active" aria-current="page" href="/">Início</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="/sobre">Sobre</a>
+          <a class="nav-link" href="/sobre">Como usar ?</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="/servicos">Serviços</a>
+          <a class="nav-link" href="/servicos">Dev</a>
         </li>
         <li class="nav-item">
           <a class="nav-link" href="/contato">Contato</a>
