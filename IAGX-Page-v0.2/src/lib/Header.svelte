@@ -14,13 +14,13 @@
     <div class={"collapse navbar-collapse" + (isOpen ? " show" : "")}>
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
         <li class="nav-item">
-          <a class="nav-link active" aria-current="page" href="/">Início</a>
+          <a class="nav-link active" aria-current="page" href="/perfil">Perfil</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="/sobre">Como usar ?</a>
+          <a class="nav-link" href="/guia">Guia</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="/servicos">Dev</a>
+          <a class="nav-link" href="/dev">Dev</a>
         </li>
         <li class="nav-item">
           <a class="nav-link" href="/contato">Contato</a>

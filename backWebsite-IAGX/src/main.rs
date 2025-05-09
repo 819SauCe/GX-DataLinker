@@ -156,6 +156,22 @@ async fn login(State(pool): State<PgPool>, Json(payload): Json<LoginRequest>) ->
     }
 }
 
+async fn get_connection_by_id(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+) -> Result<Json<Connection>, StatusCode> {
+    let result = sqlx::query_as::<_, Connection>("SELECT * FROM connections WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await;
+
+    match result {
+        Ok(conn) => Ok(Json(conn)),
+        Err(_) => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+
 async fn create_connection(State(pool): State<PgPool>, Json(payload): Json<ConnectionRequest>) -> Json<ApiResponse> {
     sqlx::query("INSERT INTO connections (name, description, leader_1, leader_2, leader_3, ip, port) VALUES ($1, $2, $3, $4, $5, $6, $7)")
         .bind(&payload.name)
@@ -224,7 +240,9 @@ async fn main() {
         .route("/containers", get(list_connections))
         .route("/containers/:id", put(update_connection))
         .route("/containers/:id", delete(delete_connection))
+        .route("/containers/:id", get(get_connection_by_id))
         .layer(middleware::from_fn(require_auth));
+        
 
     let app = Router::new()
         .route("/register", post(register))

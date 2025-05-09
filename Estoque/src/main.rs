@@ -8,7 +8,7 @@ Github: https://github.com/819SauCe/
 Local: Jaboticabal-SP
 */
 
-use dotenvy::dotenv;
+//use dotenvy::dotenv;
 use serde_json::Value;
 use std::env;
 use tokio_postgres::NoTls;
@@ -18,11 +18,12 @@ use reqwest::Client;
 use serde_json::json;
 use tokio::sync::Mutex;
 use once_cell::sync::Lazy;
-use axum::{Router, routing::post, extract::Json, response::IntoResponse};
+use axum::{Router, routing::{post, options}, extract::Json, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use chrono::{Local, Timelike};
 use tokio::time::{sleep, Duration as TokioDuration};
+use tower_http::cors::{Any, CorsLayer};
 
 static MESSAGE_HISTORY: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
@@ -54,26 +55,25 @@ async fn data(url: &str) -> Result<serde_json::Value, reqwest::Error> {
     Ok(body)
 }
 
-async fn insert_data_from_url(url: &str, client: &tokio_postgres::Client) -> Result<(), Error> {
+async fn insert_data_from_url(url: &str, client: &tokio_postgres::Client,) -> Result<(), Error> {
     let dados = data(url).await.expect("Falha ao obter dados da API");
-    println!("{}", dados);
+    for key in &["BuscarSaldoProdutoResult", "BuscarSaldoProdutoKitResult"] {
+        if let Some(result) = dados.get(*key) {
+            if let Some(items) = result
+                .get("QuantidadeDisponivelProdutos")
+                .and_then(|v| v.as_array()){
+                for item in items {
+                    let codigo: &str = item.get("CodigoProduto").and_then(|v| v.as_str()).unwrap_or("");
+                    let qtd: String = item.get("QuantidadeDisponivel").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "0".to_string());
+                    let nome: String = client.query_one("SELECT nome FROM produtos WHERE codigo = $1",&[&codigo],).await.map(|row| row.get(0)).unwrap_or_else(|_| "Nome não encontrado!".to_string());
 
-    if let Some(result) = dados.get("BuscarSaldoProdutoResult") {
-        if let Some(produtos) = result.get("QuantidadeDisponivelProdutos").and_then(|v| v.as_array()) {
-            for produto in produtos {
-                let codigo_produto = produto.get("CodigoProduto").and_then(|v| v.as_str()).unwrap_or("");
-                let quantidade_disponivel: String = produto.get("QuantidadeDisponivel").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "0".to_string());
-                let nome: String = client.query_one("SELECT nome FROM produtos WHERE codigo = $1", &[&codigo_produto]).await.map(|row| row.get(0)).unwrap_or_else(|_| String::from("Nome não encontrado!"));
-
-                println!("Código do Produto: {}, Quantidade Disponível: {}, Nome: {}", codigo_produto, quantidade_disponivel, nome);
-
-                let insert_query = "
-                INSERT INTO Estoque_and_EstoqueKits (codigo_produto, quantidade_disponivel, nome)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (codigo_produto) DO UPDATE
-                SET quantidade_disponivel = EXCLUDED.quantidade_disponivel,
-                    nome = EXCLUDED.nome";
-            client.execute(insert_query, &[&codigo_produto, &quantidade_disponivel, &nome]).await?;
+                    client.execute("INSERT INTO Estoque_and_EstoqueKits 
+                                   (codigo_produto, quantidade_disponivel, nome)
+                                    VALUES ($1, $2, $3)
+                                    ON CONFLICT (codigo_produto) DO UPDATE
+                                    SET quantidade_disponivel = EXCLUDED.quantidade_disponivel,
+                                    nome                  = EXCLUDED.nome",&[&codigo, &qtd, &nome],).await?;
+                }
             }
         }
     }
@@ -127,39 +127,86 @@ async fn tratamento_resposta(mensagem: &str) -> String {
 
 #[axum::debug_handler]
 async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
-    let (client, connection) = tokio_postgres::connect(&db_url, NoTls).await.expect("Erro ao conectar no banco");
+    println!("Recebendo mensagem: {:?}", payload.user_message);
+
+    let db_url = match env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("❌ DATABASE_URL não definida.");
+            return Json(RespostaIA {
+                resposta: "Erro interno: DATABASE_URL ausente.".to_string(),
+            });
+        }
+    };
+
+    let (client, connection) = match tokio_postgres::connect(&db_url, NoTls).await {
+        Ok((client, connection)) => (client, connection),
+        Err(err) => {
+            eprintln!("❌ Falha ao conectar no banco: {}", err);
+            return Json(RespostaIA {
+                resposta: "Erro interno ao conectar no banco.".to_string(),
+            });
+        }
+    };
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("Erro conexão: {}", e);
+            eprintln!("❌ Erro na conexão do banco: {}", e);
         }
     });
 
-    let user_code = payload.user_message.trim();
-    let row_opt = client.query_opt("SELECT codigo_produto, quantidade_disponivel, nome FROM estoque_and_estoquekits WHERE codigo_produto = $1", &[&user_code]).await.unwrap();    
+    let user_input = payload.user_message.trim();
+    let row_opt = match client
+        .query_opt(
+            "SELECT codigo_produto, quantidade_disponivel, nome \
+             FROM estoque_and_estoquekits \
+             WHERE codigo_produto ILIKE $1 \
+             LIMIT 1;",
+            &[&user_input],
+        )
+        .await
+    {
+        Ok(row) => row,
+        Err(err) => {
+            eprintln!("❌ Erro ao buscar no banco: {}", err);
+            return Json(RespostaIA {
+                resposta: "Erro ao consultar estoque.".to_string(),
+            });
+        }
+    };
 
-    let mensagem_final = if let Some(row) = row_opt {
+    let mensagem_para_ia = if let Some(row) = row_opt {
         let codigo_produto: &str = row.get(0);
         let quantidade_disponivel: &str = row.get(1);
         let nome: &str = row.get(2);
-
         format!(
-            "Item em estoque encontrado!\n\
-            Código do produto: {}\nNome: {}\nQuantidade disponível: {}",
+            "Item em estoque\n\
+             Código do produto: {}\n\
+             Nome: {}\n\
+             Quantidade disponível: {}",
             codigo_produto, nome, quantidade_disponivel
-        )      
+        )
     } else {
         payload.user_message.clone()
     };
 
-    let resposta = tratamento_resposta(&mensagem_final).await;
+    let resposta = tratamento_resposta(&mensagem_para_ia).await;
     Json(RespostaIA { resposta })
 }
 
 async fn start_http_server() {
     println!("Servidor rodando!");
-    let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));
-    
+
+    let cors = CorsLayer::new()
+    .allow_origin(Any)
+    .allow_methods(Any)
+    .allow_headers(Any);
+
+    let app = Router::new()
+        .route("/gerar_relatorio", post(gerar_relatorio))
+        .route("/gerar_relatorio", options(|| async { "" }))
+        .layer(cors);
+
+
     match TcpListener::bind("0.0.0.0:5200").await {
         Ok(listener) => {
             if let Err(e) = axum::serve(listener, app.into_make_service()).await {
@@ -213,7 +260,7 @@ async fn rotina_de_insercao() {
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
+    dotenvy::from_path("/opt/IAGX-Page-v0.2/.env").ok();
     tokio::join!(
         start_http_server(),
         rotina_de_insercao()

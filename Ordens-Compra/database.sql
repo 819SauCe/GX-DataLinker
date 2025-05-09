@@ -29,11 +29,6 @@ CREATE TABLE ord_compra (
     valor_total DOUBLE PRECISION
 );
 
-CREATE TABLE produtos (
-    id TEXT PRIMARY KEY,
-    codigo TEXT
-);
-
 CREATE TABLE ord_produtos (
     id SERIAL PRIMARY KEY,
     id_ordem TEXT REFERENCES ord_compra(id),

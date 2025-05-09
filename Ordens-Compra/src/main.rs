@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use once_cell::sync::Lazy;
-use axum::{Router, routing::post, extract::Json, response::IntoResponse};
+use tower_http::cors::{Any, CorsLayer};
+use axum::{Router, routing::{post, options}, extract::Json, response::IntoResponse};
 use chrono::NaiveDate;
 use dotenvy::from_path;
 use std::path::Path;
@@ -33,14 +34,14 @@ fn parse_date_br(date_str: &str) -> Option<NaiveDate> {
 async fn obtain_token() -> Value {
     let client = Client::new();
     let dados: Value = serde_json::from_str(&std::env::var("BODY_APIV2").unwrap()).unwrap();
-    let res = client.post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token").json(&dados).send().await.unwrap().json::<Value>().await.unwrap();
+    let res = client.post("http://global_trade.cr.wk.net.br/wk.api/api/v1/token").json(&dados).send().await.unwrap().json::<Value>().await.unwrap();
 
     res
 }
 
 async fn obtain_ord(token: &str) -> Value {
     let client = Client::new();
-    let url = format!("https://global_trade.cr.wk.net.br/wk.api/api/compras/v1/ordem-compra?situacaoAutorizacao=Autorizada&situacaoAtendimento=Pendente");
+    let url = format!("http://global_trade.cr.wk.net.br/wk.api/api/compras/v1/ordem-compra?situacaoAutorizacao=Autorizada&situacaoAtendimento=Pendente");
     let res = client.get(&url).bearer_auth(token).send().await.unwrap().json::<Value>().await.unwrap();
 
     return res;
@@ -210,7 +211,6 @@ async fn tratamento_resposta(mensagem: &str) -> String {
     }
 }
 
-
 #[axum::debug_handler]
 async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL não definida");
@@ -311,10 +311,21 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
     Json(RespostaIA { resposta })
 }
 
+
 async fn start_http_server() {
     println!("Servidor rodando!");
-    let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));
-    
+
+    let cors = CorsLayer::new()
+    .allow_origin(Any)
+    .allow_methods(Any)
+    .allow_headers(Any);
+
+    let app = Router::new()
+        .route("/gerar_relatorio", post(gerar_relatorio))
+        .route("/gerar_relatorio", options(|| async { "" }))
+        .layer(cors);
+
+
     match TcpListener::bind("0.0.0.0:5100").await {
         Ok(listener) => {
             if let Err(e) = axum::serve(listener, app.into_make_service()).await {
@@ -357,7 +368,7 @@ async fn rotina_de_insercao() {
 
 #[tokio::main]
 async fn main() {
-    from_path(Path::new("../.env")).expect("Falha ao carregar .env");
+    from_path(Path::new("/opt/IAGX-Page-v0.2/.env")).expect("Falha ao carregar .env");
 
     tokio::join!(
         start_http_server(),

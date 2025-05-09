@@ -116,47 +116,20 @@ async fn inserir_dados() {
     if let Some(notas) = data.as_array() {
         for nota in notas {
             let chave = nota["chave"].as_str().unwrap_or("");
-            let idfilial = nota
-                .get("rateios")
-                .and_then(|r| r.as_array())
-                .and_then(|arr| arr.get(0))
-                .and_then(|r| r.get("idFilial"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let idfilial = nota.get("rateios").and_then(|r| r.as_array()).and_then(|arr| arr.get(0)).and_then(|r| r.get("idFilial")).and_then(|v| v.as_str()).unwrap_or("");
             let data_emissao = nota["dataEmissao"].as_str().unwrap_or("");
-            let data_emissao_format =
-                NaiveDateTime::parse_from_str(data_emissao, "%Y-%m-%dT%H:%M:%S")
-                    .unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
+            let data_emissao_format =NaiveDateTime::parse_from_str(data_emissao, "%Y-%m-%dT%H:%M:%S").unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
             let data_saida = nota["dataEntradaSaida"].as_str().unwrap_or("");
-            let data_saida_format = NaiveDateTime::parse_from_str(data_saida, "%Y-%m-%dT%H:%M:%S")
-                .unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
+            let data_saida_format = NaiveDateTime::parse_from_str(data_saida, "%Y-%m-%dT%H:%M:%S").unwrap_or_else(|_| NaiveDateTime::UNIX_EPOCH);
             let numero = nota["numero"].as_i64().unwrap_or(0);
             let cliente = nota["idClienteFornecedor"].as_str().unwrap_or("");
             let numero_str = numero.to_string();
-            let row = client
-                .query_opt(
-                    "SELECT id_uuid FROM notas_fiscais WHERE chave = $1",
-                    &[&chave],
-                )
-                .await
-                .unwrap();
-            let id_uuid = if let Some(r) = row {
-                r.get::<_, Uuid>(0)
-            } else {
-                Uuid::new_v4()
-            };
+            let row = client.query_opt("SELECT id_uuid FROM notas_fiscais WHERE chave = $1",&[&chave],).await.unwrap();
+            let id_uuid = if let Some(r) = row {r.get::<_, Uuid>(0)} else {Uuid::new_v4()};
             let id = id_uuid.to_string();
             let tipo_api = nota["tipo"].as_str().unwrap_or("");
-            let tipo = match tipo_api {
-                "Entrada" => "Entrada",
-                "Saida" => "Saída",
-                _ => "Saída",
-            };
-            let nomecliente = nota
-                .get("localEntrega")
-                .and_then(|v| v.get("nome"))
-                .and_then(|n| n.as_str())
-                .unwrap_or("");
+            let tipo = match tipo_api {"Entrada" => "Entrada","Saida" => "Saída",_ => "Saída",};
+            let nomecliente = nota.get("localEntrega").and_then(|v| v.get("nome")).and_then(|n| n.as_str()).unwrap_or("");
 
             client.execute(
                 "INSERT INTO notas_fiscais (id, id_uuid, chave, idfilial, tipo, dataemissao, dataentradasaida, numero, codigocliente, nomecliente)
