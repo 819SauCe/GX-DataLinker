@@ -9,10 +9,11 @@ Github: https://github.com/819SauCe/
 Local: Jaboticabal-SP
 */
 
-use axum::{Router, extract::Json, response::IntoResponse, routing::post};
 use chrono::{Duration as ChronoDuration, Local, NaiveDateTime, Timelike};
 use dotenvy::from_path;
 use once_cell::sync::Lazy;
+use tower_http::cors::{Any, CorsLayer};
+use axum::{Router, routing::{post, options}, extract::Json, response::IntoResponse};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,7 +43,7 @@ async fn obtain_token() -> Value {
     let client = Client::new();
     let dados: Value = serde_json::from_str(&std::env::var("BODY_APIV2").unwrap()).unwrap();
     let res = client
-        .post("https://global_trade.cr.wk.net.br/wk.api/api/v1/token")
+        .post("http://global_trade.cr.wk.net.br/wk.api/api/v1/token")
         .json(&dados)
         .send()
         .await
@@ -59,7 +60,7 @@ async fn obtain_nfe(token: &str) -> Value {
     let data_atual = Local::now().naive_local().date();
     let data_antiga = data_atual - ChronoDuration::days(1096);
     let url = format!(
-        "https://global_trade.cr.wk.net.br/wk.api/api/comercial/v1/nota-fiscal?DataEmissaoInicial={}&DataEmissaoFinal={}",
+        "http://global_trade.cr.wk.net.br/wk.api/api/comercial/v1/nota-fiscal?DataEmissaoInicial={}&DataEmissaoFinal={}",
         data_antiga, data_atual
     );
     let res = client
@@ -78,7 +79,7 @@ async fn obtain_nfe(token: &str) -> Value {
 async fn obter_produto(token: &str, id_produto: &str) -> Option<Value> {
     let client = Client::new();
     let url = format!(
-        "https://global_trade.cr.wk.net.br/wk.api/api/empresarial/v1/produto/{}",
+        "http://global_trade.cr.wk.net.br/wk.api/api/empresarial/v1/produto/{}",
         id_produto
     );
     let res = client
@@ -364,11 +365,28 @@ async fn gerar_relatorio(Json(payload): Json<Mensagem>) -> impl IntoResponse {
 
 async fn start_http_server() {
     println!("Servidor rodando!");
-    let app = Router::new().route("/api/gerar_relatorio", post(gerar_relatorio));
-    let listener = TcpListener::bind("0.0.0.0:5400").await.unwrap();
-    axum::serve(listener, app.into_make_service())
-        .await
-        .unwrap();
+
+    let cors = CorsLayer::new()
+    .allow_origin(Any)
+    .allow_methods(Any)
+    .allow_headers(Any);
+
+    let app = Router::new()
+        .route("/gerar_relatorio", post(gerar_relatorio))
+        .route("/gerar_relatorio", options(|| async { "" }))
+        .layer(cors);
+
+
+    match TcpListener::bind("0.0.0.0:5400").await {
+        Ok(listener) => {
+            if let Err(e) = axum::serve(listener, app.into_make_service()).await {
+                eprintln!("Erro ao iniciar o servidor: {}", e);
+            }
+        },
+        Err(e) => {
+            eprintln!("Erro ao fazer bind na porta: {}", e);
+        }
+    }
 }
 
 async fn rotina_de_insercao() {
@@ -400,10 +418,10 @@ async fn rotina_de_insercao() {
 
 #[tokio::main]
 async fn main() {
-    from_path(Path::new("../.env")).expect("Falha ao carregar .env");
-    println!("DATABASE_URL: {:?}", env::var("DATABASE_URL"));
-    println!("BODY_APIV2: {:?}", env::var("BODY_APIV2"));
-    println!("API_OPENAI: {:?}", env::var("API_OPENAI"));
+    from_path(Path::new("/opt/IAGX-Page-v0.2/.env")).expect("Falha ao carregar .env");
+    //println!("DATABASE_URL: {:?}", env::var("DATABASE_URL"));
+    //println!("BODY_APIV2: {:?}", env::var("BODY_APIV2"));
+    //println!("API_OPENAI: {:?}", env::var("API_OPENAI"));
     inserir_dados().await;
 
     tokio::join!(start_http_server(), rotina_de_insercao());
