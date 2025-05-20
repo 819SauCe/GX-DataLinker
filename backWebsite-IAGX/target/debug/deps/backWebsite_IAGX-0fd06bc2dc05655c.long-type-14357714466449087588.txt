@@ -1,0 +1,1 @@
+fn(State<Pool<Postgres>>, {type error}, Multipart) -> impl Future<Output = Result<axum::Json<ApiResponse>, axum::http::StatusCode>> {upload_avatar}: Handler<_, _, _>

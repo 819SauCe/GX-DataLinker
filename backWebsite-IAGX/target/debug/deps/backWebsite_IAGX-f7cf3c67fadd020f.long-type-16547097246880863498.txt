@@ -1,0 +1,1 @@
+fn(State<Pool<Postgres>>, TypedHeader<Authorization<std::string::String>>, Multipart) -> impl Future<Output = Result<axum::Json<ApiResponse>, axum::http::StatusCode>> {upload_avatar}
