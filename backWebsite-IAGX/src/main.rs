@@ -1,11 +1,16 @@
 use axum::{
+<<<<<<< HEAD
     extract::{Path, State},
+=======
+    extract::{Path, State, Multipart, TypedHeader},
+>>>>>>> master
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put, delete},
     Json, Router, Server,
 };
+<<<<<<< HEAD
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::{env, net::SocketAddr, path::Path as StdPath};
@@ -13,6 +18,26 @@ use dotenvy::from_path;
 use tower_http::cors::{Any, CorsLayer};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use chrono::{Utc, Duration};
+=======
+use headers::Authorization;
+use serde::{Deserialize, Serialize};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use std::{
+    env,
+    fs::{self, File},
+    io::Write,
+    net::SocketAddr,
+    path::{Path as StdPath, PathBuf},
+};
+use dotenvy::from_path;
+use tower_http::cors::{Any, CorsLayer};
+use jsonwebtoken::{encode, decode, EncodingKey, DecodingKey, Header, Validation};
+use chrono::{Utc, Duration};
+use headers::authorization::Bearer;
+use tower_http::services::ServeDir;
+use chrono::NaiveDateTime;
+
+>>>>>>> master
 
 #[derive(Deserialize)]
 struct RegisterRequest {
@@ -33,11 +58,14 @@ struct LoginResponse {
     username: String,
 }
 
+<<<<<<< HEAD
 #[derive(Serialize)]
 struct ApiResponse {
     message: String,
 }
 
+=======
+>>>>>>> master
 #[derive(Serialize, Deserialize)]
 struct Claims {
     sub: String,
@@ -75,8 +103,20 @@ struct UserProfile {
     username: String,
     email: String,
     avatar_url: Option<String>,
+<<<<<<< HEAD
 }
 
+=======
+    last_seen: Option<NaiveDateTime>,
+}
+
+#[derive(Serialize)]
+struct ApiResponse {
+    message: String,
+}
+
+
+>>>>>>> master
 async fn require_auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, Response> {
     if let Some(auth) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth.to_str() {
@@ -234,11 +274,16 @@ async fn delete_connection(State(pool): State<PgPool>, Path(id): Path<i32>) -> J
 
 async fn get_user_by_username(
     State(pool): State<PgPool>,
+<<<<<<< HEAD
     Path(username): Path<String>,
 ) -> Result<Json<UserProfile>, StatusCode> {
     let result = sqlx::query_as::<_, UserProfile>(
         "SELECT id, username, email, avatar_url FROM users WHERE username = $1"
     )
+=======
+    Path(username): Path<String>,) -> Result<Json<UserProfile>, StatusCode> {
+    let result = sqlx::query_as::<_, UserProfile>("SELECT id, username, email, avatar_url, last_seen FROM users WHERE username = $1")
+>>>>>>> master
     .bind(username)
     .fetch_one(&pool)
     .await;
@@ -249,31 +294,163 @@ async fn get_user_by_username(
     }
 }
 
+<<<<<<< HEAD
+=======
+async fn upload_avatar(
+    State(pool): State<PgPool>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiResponse>, StatusCode> {
+    use std::fs;
+    fs::create_dir_all("./static/avatars").ok();
+
+    // 1. Decodifica o token JWT
+    let token = auth.token();
+    let key = b"seu_segredo_super_forte";
+    let decoded = jsonwebtoken::decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(key),
+        &Validation::default(),
+    ).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let username = decoded.claims.username;
+
+    // 2. Lê o arquivo enviado
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let content_type = field.content_type().unwrap_or("application/octet-stream");
+        if !content_type.starts_with("image/") {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        let original = field.file_name().unwrap_or("avatar.png");
+        let ext = original.split('.').last().unwrap_or("png");
+        let file_name = format!("{}.{}", username, ext);
+
+        let data = field.bytes().await.unwrap();
+        if data.len() > 2 * 1024 * 1024 {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+
+        // 3. Caminho absoluto para evitar erro de escrita
+        let full_path: PathBuf = std::env::current_dir()
+            .unwrap()
+            .join("static")
+            .join("avatars")
+            .join(&file_name);
+
+        let mut file = File::create(&full_path).unwrap();
+        file.write_all(&data).unwrap();
+
+        // 4. Atualiza avatar_url no banco
+        let avatar_url = format!("/avatars/{}", file_name);
+        let result = sqlx::query("UPDATE users SET avatar_url = $1 WHERE username = $2")
+            .bind(&avatar_url)
+            .bind(&username)
+            .execute(&pool)
+            .await;
+
+        match result {
+            Ok(_) => return Ok(Json(ApiResponse {
+                message: "Upload feito com sucesso".into(),
+            })),
+            Err(e) => {
+                eprintln!("Erro ao atualizar avatar_url: {:?}", e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    Err(StatusCode::BAD_REQUEST)
+}
+
+async fn ping_user(
+    State(pool): State<PgPool>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<ApiResponse>, StatusCode> {
+    let token = auth.token();
+    let key = b"seu_segredo_super_forte";
+
+    let decoded = jsonwebtoken::decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(key),
+        &Validation::default(),
+    )
+    .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let username = decoded.claims.username;
+
+    // Evita atualizações frequentes demais
+    let last_seen: Option<chrono::NaiveDateTime> = sqlx::query_scalar(
+        "SELECT last_seen FROM users WHERE username = $1"
+    )
+    .bind(&username)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+
+    let agora = chrono::Utc::now().naive_utc();
+
+    if last_seen.map(|t| agora.signed_duration_since(t).num_seconds() > 30).unwrap_or(true) {
+        sqlx::query("UPDATE users SET last_seen = NOW() WHERE username = $1")
+            .bind(&username)
+            .execute(&pool)
+            .await
+            .ok();
+    }
+
+    Ok(Json(ApiResponse {
+        message: "Ping registrado".into(),
+    }))
+}
+
+>>>>>>> master
 #[tokio::main]
 async fn main() {
     from_path(StdPath::new("../.env")).expect("Falha ao carregar .env");
     let db_url = env::var("DATABASE_URL_FOR_WEB").expect("DATABASE_URL_FOR_WEB não definida");
     let pool = PgPoolOptions::new().connect(&db_url).await.unwrap();
+<<<<<<< HEAD
+=======
+    let static_files = Router::new().nest_service("/avatars", ServeDir::new("static/avatars"));
+>>>>>>> master
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
+<<<<<<< HEAD
+=======
+    //rotas protegidas
+>>>>>>> master
     let protected_routes = Router::new()
         .route("/containers", post(create_connection))
         .route("/containers", get(list_connections))
         .route("/containers/:id", put(update_connection))
         .route("/containers/:id", delete(delete_connection))
         .route("/containers/:id", get(get_connection_by_id))
+<<<<<<< HEAD
         .layer(middleware::from_fn(require_auth));
         
 
+=======
+        .route("/upload-avatar", post(upload_avatar))
+        .layer(middleware::from_fn(require_auth));
+        
+    //rotas publicas
+>>>>>>> master
     let app = Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/perfil/:username", get(get_user_by_username))
+<<<<<<< HEAD
         .merge(protected_routes)
+=======
+        .route("/ping", get(ping_user))
+        .merge(protected_routes)
+        .merge(static_files)
+>>>>>>> master
         .with_state(pool)
         .layer(cors);
 
