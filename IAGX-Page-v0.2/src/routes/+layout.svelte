@@ -18,6 +18,7 @@
     }
 
     :global(.theme-default) {
+    --icon: "/iagx-default.png";
     --bg-color: #2a2a2a;
     --reverse-color: #ffff;
     --container-background: #151d25;
@@ -30,6 +31,7 @@
     }
 
     :global(.theme-globalx) {
+        --icon: "/iagx-globalx.png";
         --bg-color: #1c1c1c;
         --reverse-color: #f0f0f0;
         --container-background: #212f3d;
@@ -42,6 +44,7 @@
     }
 
     :global(.theme-dark) {
+        --icon: "/iagx-dark.png";
         --bg-color: #1e1e1e;
         --reverse-color: #2c2c2c;
         --container-background: #2a2a2a;

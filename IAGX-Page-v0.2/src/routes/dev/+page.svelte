@@ -1,7 +1,27 @@
 <script>
+    import { onMount } from "svelte";
+
+    let isOpen = false;
+    let name = "";
+    let avatar = "/avatars/no-user.webp";
+    let currentIcon = "/favicon.png";
     let users = [
-        { id: "1", name: "João", password: "123", email: "joao@exemplo.com", type: "admin", create_date: "19/05/2025" },
-        { id: "2", name: "Maria", password: "123", email: "maria@exemplo.com", type: "user", create_date: "01/01/2025" },
+        {
+            id: "1",
+            name: "João",
+            password: "123",
+            email: "joao@exemplo.com",
+            type: "admin",
+            create_date: "19/05/2025",
+        },
+        {
+            id: "2",
+            name: "Maria",
+            password: "123",
+            email: "maria@exemplo.com",
+            type: "user",
+            create_date: "01/01/2025",
+        },
     ];
 
     function addUser() {
@@ -16,6 +36,47 @@
         const user = users[index];
         console.log("Salvar:", user);
     }
+
+    function updateIcon() {
+        const icon = getComputedStyle(document.documentElement)
+            .getPropertyValue("--icon")
+            .trim()
+            .replace(/"/g, "");
+
+        if (icon) currentIcon = icon;
+    }
+
+    function getThemeFromCookie() {
+        const match = document.cookie.match(/theme=([^;]+)/);
+        return match ? match[1] : "default";
+    }
+
+    onMount(async () => {
+        name = localStorage.getItem("username");
+
+        if (name) {
+            try {
+                const res = await fetch(
+                    `https://api.iagx.com.br/perfil/${name}`,
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.avatar_url) {
+                        avatar = `https://api.iagx.com.br${data.avatar_url}`;
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao buscar avatar:", err);
+            }
+        }
+
+        updateIcon();
+        const observer = new MutationObserver(updateIcon);
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class"],
+        });
+    });
 </script>
 
 <main class="main-wrapper d-flex align-items-center justify-content-center">
@@ -95,25 +156,29 @@
                             <input
                                 type="text"
                                 class="form-control bg-dark text-white border-0"
-                                bind:value={user.password}/>
+                                bind:value={user.password}
+                            />
                         </td>
                         <td>
                             <input
                                 type="text"
                                 class="form-control bg-dark text-white border-0"
-                                bind:value={user.email}/>
+                                bind:value={user.email}
+                            />
                         </td>
                         <td>
                             <input
                                 type="text"
                                 class="form-control bg-dark text-white border-0"
-                                bind:value={user.type}/>
+                                bind:value={user.type}
+                            />
                         </td>
                         <td>
                             <input
                                 type="text"
                                 class="form-control bg-dark text-white border-0"
-                                bind:value={user.create_date}/>
+                                bind:value={user.create_date}
+                            />
                         </td>
                         <td>
                             <div class="d-flex gap-2">

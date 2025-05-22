@@ -22,6 +22,8 @@ use jsonwebtoken::{encode, decode, EncodingKey, DecodingKey, Header, Validation}
 use chrono::{Utc, Duration};
 use headers::authorization::Bearer;
 use tower_http::services::ServeDir;
+use chrono::NaiveDateTime;
+
 
 #[derive(Deserialize)]
 struct RegisterRequest {
@@ -79,6 +81,7 @@ struct UserProfile {
     username: String,
     email: String,
     avatar_url: Option<String>,
+    last_seen: Option<NaiveDateTime>,
 }
 
 #[derive(Serialize)]
@@ -244,11 +247,8 @@ async fn delete_connection(State(pool): State<PgPool>, Path(id): Path<i32>) -> J
 
 async fn get_user_by_username(
     State(pool): State<PgPool>,
-    Path(username): Path<String>,
-) -> Result<Json<UserProfile>, StatusCode> {
-    let result = sqlx::query_as::<_, UserProfile>(
-        "SELECT id, username, email, avatar_url FROM users WHERE username = $1"
-    )
+    Path(username): Path<String>,) -> Result<Json<UserProfile>, StatusCode> {
+    let result = sqlx::query_as::<_, UserProfile>("SELECT id, username, email, avatar_url, last_seen FROM users WHERE username = $1")
     .bind(username)
     .fetch_one(&pool)
     .await;
@@ -326,6 +326,47 @@ async fn upload_avatar(
     Err(StatusCode::BAD_REQUEST)
 }
 
+async fn ping_user(
+    State(pool): State<PgPool>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<ApiResponse>, StatusCode> {
+    let token = auth.token();
+    let key = b"seu_segredo_super_forte";
+
+    let decoded = jsonwebtoken::decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(key),
+        &Validation::default(),
+    )
+    .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let username = decoded.claims.username;
+
+    // Evita atualizações frequentes demais
+    let last_seen: Option<chrono::NaiveDateTime> = sqlx::query_scalar(
+        "SELECT last_seen FROM users WHERE username = $1"
+    )
+    .bind(&username)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+
+    let agora = chrono::Utc::now().naive_utc();
+
+    if last_seen.map(|t| agora.signed_duration_since(t).num_seconds() > 30).unwrap_or(true) {
+        sqlx::query("UPDATE users SET last_seen = NOW() WHERE username = $1")
+            .bind(&username)
+            .execute(&pool)
+            .await
+            .ok();
+    }
+
+    Ok(Json(ApiResponse {
+        message: "Ping registrado".into(),
+    }))
+}
+
 #[tokio::main]
 async fn main() {
     from_path(StdPath::new("../.env")).expect("Falha ao carregar .env");
@@ -338,6 +379,7 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    //rotas protegidas
     let protected_routes = Router::new()
         .route("/containers", post(create_connection))
         .route("/containers", get(list_connections))
@@ -347,11 +389,12 @@ async fn main() {
         .route("/upload-avatar", post(upload_avatar))
         .layer(middleware::from_fn(require_auth));
         
-
+    //rotas publicas
     let app = Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/perfil/:username", get(get_user_by_username))
+        .route("/ping", get(ping_user))
         .merge(protected_routes)
         .merge(static_files)
         .with_state(pool)
